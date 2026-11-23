@@ -11,9 +11,7 @@ COPY pyproject.toml poetry.lock README.md ./
 RUN poetry install --only main --no-root
 COPY alquilometro_api ./alquilometro_api
 COPY frontend/index.html frontend/style.css frontend/app.js frontend/web.py ./frontend/
-COPY frontend/cargar_demo.py ./frontend/
-COPY frontend/datos_demo ./frontend/datos_demo
 COPY frontend/marca ./frontend/marca
 
 EXPOSE 8000
-CMD ["sh", "-c", "python -m frontend.cargar_demo && exec uvicorn frontend.web:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD ["sh", "-c", "python -m alquilometro_api.semilla && exec uvicorn frontend.web:app --host 0.0.0.0 --port ${PORT:-8000}"]
