@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
+    Date,
     Enum,
     Integer,
     Numeric,
@@ -15,9 +17,11 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from alquilometro_api.core.database import Base
+from alquilometro_api.domain.abonos import DIAS_GRACIA, ocultar_desde
 from alquilometro_api.domain.dinero import Dinero
 from alquilometro_api.domain.errores import ValidacionError
 from alquilometro_api.domain.moneda import Moneda
+from alquilometro_api.domain.patrocinio import hoy_en_argentina
 from alquilometro_api.domain.rol import Rol
 
 if TYPE_CHECKING:
@@ -53,6 +57,11 @@ class Usuario(Base):
     password_hash: Mapped[str] = mapped_column(String(255))
     habilitada: Mapped[bool] = mapped_column(Boolean, server_default=true())
     version_sesion: Mapped[int] = mapped_column(Integer, server_default='0')
+    abono_vigente_hasta: Mapped[date | None] = mapped_column(Date)
+    abono_pagado_el: Mapped[date | None] = mapped_column(Date)
+    abono_referencia_pendiente: Mapped[str | None] = mapped_column(String(100))
+    abono_eliminar_desde: Mapped[date | None] = mapped_column(Date)
+    abono_corte_sin_pago: Mapped[date | None] = mapped_column(Date)
 
     rol: Mapped[Rol] = mapped_column(
         Enum(Rol, native_enum=False, lenght=20),
@@ -72,6 +81,30 @@ class Usuario(Base):
     publicaciones: Mapped[list['Publicacion']] = relationship(
         back_populates='publicador',
     )
+
+    @property
+    def avisos_visibles(self) -> bool:
+        if not self.habilitada or self.rol is not Rol.INMOBILIARIA:
+            return self.habilitada
+        hoy = hoy_en_argentina()
+        if self.abono_vigente_hasta is None:
+            return (
+                self.abono_corte_sin_pago is None
+                or hoy < self.abono_corte_sin_pago
+            )
+        return self.abono_vigente_hasta >= hoy - timedelta(days=DIAS_GRACIA)
+
+    @property
+    def abono_ocultar_desde(self) -> date | None:
+        if self.abono_vigente_hasta is not None:
+            return ocultar_desde(self.abono_vigente_hasta)
+        return self.abono_corte_sin_pago
+
+    @property
+    def abono_vigente(self) -> bool:
+        if self.abono_vigente_hasta is None:
+            return False
+        return self.abono_vigente_hasta >= hoy_en_argentina()
 
     @property  # getter: returnea Dinero
     def ingreso_referencia(self) -> Dinero | None:

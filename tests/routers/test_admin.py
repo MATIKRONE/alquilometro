@@ -35,6 +35,12 @@ def test_alta_baja_y_reactivacion_de_inmobiliaria(
     login = {'email': alta['email'], 'password': CLAVE_AGENCIA}
     token = cliente.post('/auth/login', json=login).json()['access_token']
     cuenta = {'Authorization': f'Bearer {token}'}
+    abono = cliente.patch(
+        f'{url}/{agencia["id"]}/abono',
+        json={'pagado_el': '2099-01-01'},
+        headers=administrador,
+    )
+    assert abono.status_code == HTTPStatus.NO_CONTENT
     datos = {
         'propiedad': {
             'direccion': 'Avenida Rivadavia 5500',
@@ -112,7 +118,9 @@ def test_baja_de_inmobiliaria_no_cambia_otro_tipo_de_cuenta(
     )
 
 
-@pytest.mark.parametrize('ruta', ['/admin/resumen', '/admin/publicaciones'])
+@pytest.mark.parametrize(
+    'ruta', ['/admin/resumen', '/admin/publicaciones', '/admin/cuentas']
+)
 def test_panel_solo_para_administradores(
     ruta: str,
     cliente: TestClient,
@@ -130,6 +138,57 @@ def test_panel_solo_para_administradores(
     respuesta = cliente.get(ruta, headers=administrador)
     assert respuesta.status_code == HTTPStatus.OK
     assert respuesta.headers['cache-control'] == 'no-store'
+    if ruta == '/admin/cuentas':
+        cuentas = respuesta.json()['cuentas']
+        assert {cuenta['rol'] for cuenta in cuentas} == {
+            'ADMIN',
+            'BUSCADOR',
+            'INMOBILIARIA',
+        }
+        assert all(
+            set(cuenta) == {'id', 'nombre', 'email', 'rol', 'habilitada'}
+            for cuenta in cuentas
+        )
+
+
+def test_cuentas_se_paginan_y_combinan_filtros(
+    cliente: TestClient,
+    autenticar_como: Autenticar,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(admin, 'CUENTAS_POR_PAGINA', 1)
+    administrador = autenticar_como('admin@example.com', 'ADMIN')
+    agencia = autenticar_como('agencia@example.com', 'INMOBILIARIA')
+    autenticar_como('activa@example.com', 'INMOBILIARIA')
+    cuenta = cliente.get('/usuarios/me', headers=agencia).json()
+    assert (
+        cliente.patch(
+            f'/admin/inmobiliarias/{cuenta["id"]}/estado',
+            json={'habilitada': False},
+            headers=administrador,
+        ).status_code
+        == HTTPStatus.NO_CONTENT
+    )
+    filtros = {'rol': 'INMOBILIARIA'}
+    ruta = '/admin/cuentas'
+    primera = cliente.get(ruta, params=filtros, headers=administrador).json()
+    segunda = cliente.get(
+        ruta, params=filtros | {'pagina': 2}, headers=administrador
+    ).json()
+    assert primera['total'] == segunda['total'] == len([primera, segunda])
+    assert len(primera['cuentas']) == len(segunda['cuentas']) == 1
+    for habilitada, email in (
+        (True, 'activa@example.com'),
+        (False, cuenta['email']),
+    ):
+        lista = cliente.get(
+            ruta,
+            params=filtros | {'habilitada': habilitada},
+            headers=administrador,
+        ).json()
+        assert lista['total'] == 1
+        assert lista['cuentas'][0]['email'] == email
+        assert lista['cuentas'][0]['habilitada'] is habilitada
 
 
 def test_panel_muestra_cupos_y_filtra_avisos_por_estado_y_anunciante(
@@ -186,6 +245,26 @@ def test_panel_muestra_cupos_y_filtra_avisos_por_estado_y_anunciante(
         '/admin/publicaciones', params={'pagina': 2}, headers=administrador
     ).json()
     assert segunda['avisos'][0]['id'] == primero
+    visibles = cliente.get(
+        '/admin/publicaciones',
+        params={'estado': 'visible'},
+        headers=administrador,
+    ).json()
+    assert [aviso['id'] for aviso in visibles['avisos']] == [primero]
+
+    agencia_id = resumen['inmobiliarias'][0]['id']
+    suspendida = cliente.patch(
+        f'/admin/inmobiliarias/{agencia_id}/estado',
+        json={'habilitada': False},
+        headers=administrador,
+    )
+    assert suspendida.status_code == HTTPStatus.NO_CONTENT
+    visibles = cliente.get(
+        '/admin/publicaciones',
+        params={'estado': 'visible'},
+        headers=administrador,
+    ).json()
+    assert visibles['total'] == 0
 
 
 def test_admin_cambia_patrocinio_sin_modificar_estado(
@@ -247,3 +326,40 @@ def test_admin_cambia_patrocinio_sin_modificar_estado(
         assert aviso['estado'] == 'activa'
         publico = cliente.get(f'/publicaciones/{aviso_id}').json()
         assert publico['patrocinada'] is patrocinada
+
+
+def test_abono_vigente_de_inmobiliaria(
+    cliente: TestClient,
+    autenticar_como: Autenticar,
+) -> None:
+    admin_headers = autenticar_como('admin@example.com', 'ADMIN')
+    headers_inmobiliaria = autenticar_como('nueva@example.com', 'INMOBILIARIA')
+    ruta_perfil = '/usuarios/me'
+    perfil = cliente.get(ruta_perfil, headers=headers_inmobiliaria).json()
+    assert perfil['abono_vigente'] is False
+    ruta = f'/admin/inmobiliarias/{perfil["id"]}/abono'
+    datos = {'pagado_el': '2099-01-31'}
+    assert (
+        cliente.patch(
+            ruta, json=datos, headers=headers_inmobiliaria
+        ).status_code
+        == HTTPStatus.FORBIDDEN
+    )
+
+    for pago, hasta, vigente in [
+        ('2099-01-31', '2099-02-28', True),
+        ('2000-01-31', '2000-02-29', False),
+        ('2000-12-15', '2001-01-15', False),
+        (None, None, False),
+    ]:
+        cambio = cliente.patch(
+            ruta, json={'pagado_el': pago}, headers=admin_headers
+        )
+        assert cambio.status_code == HTTPStatus.NO_CONTENT
+        perfil = cliente.get(ruta_perfil, headers=headers_inmobiliaria).json()
+        assert perfil['abono_vigente'] is vigente
+        resumen = cliente.get('/admin/resumen', headers=admin_headers).json()
+        agencia = resumen['inmobiliarias'][0]
+        assert agencia['abono_pagado_el'] == pago
+        assert agencia['abono_vigente_hasta'] == hasta
+        assert agencia['habilitada'] is True

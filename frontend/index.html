@@ -10,28 +10,56 @@
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css"
     integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="anonymous">
-  <link rel="stylesheet" href="./style.css?v=patrocinio-admin">
+  <link rel="stylesheet" href="./style.css?v=patrocinados-portada">
   <script defer src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"
     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="anonymous"></script>
-  <script type="module" src="./app.js?v=patrocinio-admin"></script>
+  <script type="module" src="./app.js?v=destacados"></script>
 </head>
 <body>
   <header class="top"><div class="wrap top-inner">
     <a class="brand" href="#buscar">
       <img src="/marca.svg" alt="Alquilómetro" width="308" height="64">
     </a>
-    <nav aria-label="Navegación principal">
+    <nav class="main-navigation" aria-label="Navegación principal">
       <a href="#buscar" data-view="buscar">Alquilar</a>
       <a href="#comprar" data-view="comprar">Comprar</a>
-      <a href="#contratos" data-view="contratos">Mis contratos</a>
-      <a href="#mis-publicaciones" data-view="mis-publicaciones" id="my-listings-link" hidden>Mis publicaciones</a>
-      <a href="#publicar" data-view="publicar" id="publish-link" hidden>Nueva publicación</a>
+      <a href="#guardados" data-view="guardados">Guardados</a>
+      <details class="nav-dropdown">
+        <summary><span><span class="nav-contract-prefix">Mis </span>contratos</span></summary>
+        <div class="nav-dropdown-panel">
+          <a href="#contratos" data-view="contratos">Mis contratos</a>
+          <a href="#contratos/nuevo" data-view="nuevo-contrato">Nuevo contrato</a>
+        </div>
+      </details>
+      <details class="nav-dropdown" id="listings-menu" hidden>
+        <summary>Mis publicaciones</summary>
+        <div class="nav-dropdown-panel">
+          <a href="#mis-publicaciones" data-view="mis-publicaciones">Mis publicaciones</a>
+          <a href="#publicar" data-view="publicar">Nueva publicación</a>
+        </div>
+      </details>
     </nav>
-    <div class="account-menu">
-      <button id="account" class="outline" type="button">Ingresar</button>
-      <section id="account-panel" class="account-panel" aria-labelledby="account-panel-title" hidden></section>
+    <div class="header-account">
+      <a href="#planes" data-view="planes" id="plans-link" class="nav-account-action" hidden>Planes y pagos <span aria-hidden="true">→</span></a>
+      <a href="#admin" data-view="admin" id="admin-link" class="nav-account-action" hidden>Panel de administración <span aria-hidden="true">→</span></a>
+      <div class="account-menu">
+        <button id="account" class="outline" type="button">
+          <span id="account-initial" aria-hidden="true" hidden></span>
+          <span id="account-name">Ingresar</span>
+        </button>
+        <section id="account-panel" class="account-panel" aria-labelledby="account-panel-title" hidden></section>
+      </div>
     </div>
   </div></header>
+  <aside id="renewal-banner" class="renewal-banner" aria-label="Vencimiento del abono" hidden>
+    <div class="wrap renewal-banner-inner">
+      <div role="status">
+        <strong id="renewal-banner-title"></strong>
+        <p id="renewal-banner-date"></p>
+      </div>
+      <a class="btn" href="#planes">Ver renovación <span aria-hidden="true">→</span></a>
+    </div>
+  </aside>
   <main id="main" tabindex="-1">
     <div class="wrap content">
       <p role="status">Cargando Alquilómetro…</p>

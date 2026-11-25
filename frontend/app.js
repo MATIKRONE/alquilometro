@@ -8,7 +8,7 @@ let token = sessionStorage.getItem('alquilometro-token');
 let user;
 let routeVersion = 0;
 let releasePublicationMap;
-let releaseSimilarCarousel;
+let releaseListingCarousel;
 let currentView;
 let savedPageLink;
 let publicationBackLink;
@@ -21,6 +21,7 @@ let photoUploadError;
 let releasePhotoPreviews;
 let releaseManagedPhotos;
 const maxListingPhotos = 20;
+const maxListingPhotoMB = 15;
 const maxComparedListings = 3;
 const cabaNeighborhoods = [
   'Agronomía', 'Almagro', 'Balvanera', 'Barracas', 'Belgrano', 'Boca', 'Boedo',
@@ -76,16 +77,16 @@ const adjustmentIndexes = [
   ['otro', 'Otro índice pactado'],
 ];
 const favoriteStorageKey = 'alquilometro-favoritos';
-const favorites = readFavorites();
+let favorites = readFavorites();
 const compared = new Map();
 const searchFilterLabels = {
   zona: 'Barrio', ambientes: 'Ambientes', permite_mascotas: 'Mascotas', moneda: 'Moneda',
   tipo_garantia: 'Garantía', alquiler_min: 'Alquiler desde', alquiler_max: 'Alquiler hasta',
-  costo_real_min: 'Costo mensual desde', costo_real_max: 'Costo mensual hasta',
+  costo_real_min: 'Costo mensual desde', costo_real_max: 'Costo mensual máximo',
   precio_min: 'Precio desde', precio_max: 'Precio hasta',
   orden: 'Orden', descendente: 'Sentido',
 };
-const canPublish = () => ['INMOBILIARIA', 'ADMIN'].includes(user?.rol);
+const canManageListings = () => ['INMOBILIARIA', 'ADMIN'].includes(user?.rol);
 const canManagePublication = (p) => user && (user.id === p.publicador_id || user.rol === 'ADMIN');
 const recordedListingEvents = new Set();
 
@@ -143,17 +144,23 @@ async function api(path, method = 'GET', body) {
     const detail = Array.isArray(data.detail)
       ? data.detail.map((item) => item.loc.at(-1) + ': ' + item.msg).join(' · ')
       : data.detail;
-    throw new Error(detail || 'La API devolvió un error (' + response.status + ').');
+    const error = new Error(detail || 'La API devolvió un error (' + response.status + ').');
+    error.status = response.status;
+    throw error;
   }
   return data;
 }
 
 function setUser(profile, accessToken = null) {
+  if (profile?.id !== user?.id) favorites = profile ? new Set() : readFavorites();
   user = profile;
   token = accessToken;
   if (token) sessionStorage.setItem('alquilometro-token', token);
   else sessionStorage.removeItem('alquilometro-token');
-  account.textContent = profile ? profile.nombre : 'Ingresar';
+  document.querySelector('#account-name').textContent = profile ? profile.nombre : 'Ingresar';
+  const initial = document.querySelector('#account-initial');
+  initial.textContent = profile?.nombre.trim().slice(0, 1).toUpperCase() ?? '';
+  initial.hidden = !profile;
   if (profile) {
     account.setAttribute('aria-controls', 'account-panel');
     account.setAttribute('aria-expanded', String(!accountPanel.hidden));
@@ -162,8 +169,42 @@ function setUser(profile, accessToken = null) {
     account.removeAttribute('aria-controls');
     account.removeAttribute('aria-expanded');
   }
-  document.querySelector('#publish-link').hidden = !canPublish();
-  document.querySelector('#my-listings-link').hidden = !canPublish();
+  document.querySelector('#listings-menu').hidden = !canManageListings();
+  document.querySelector('#plans-link').hidden = profile?.rol !== 'INMOBILIARIA';
+  document.querySelector('#admin-link').hidden = profile?.rol !== 'ADMIN';
+  mostrarAvisoDeAbono();
+}
+
+function abonoPorVencer(profile) {
+  if (profile?.rol !== 'INMOBILIARIA' || !profile.abono_vigente || !profile.abono_vigente_hasta) return false;
+  const fechaLimite = new Date(fechaActualArgentina() + 'T00:00:00Z');
+  fechaLimite.setUTCDate(fechaLimite.getUTCDate() + 3);
+  return profile.abono_vigente_hasta <= fechaLimite.toISOString().slice(0, 10);
+}
+
+function mostrarAvisoDeAbono() {
+  const banner = document.querySelector('#renewal-banner');
+  banner.hidden = true;
+  if (user?.rol !== 'INMOBILIARIA') return;
+
+  const corte = user.abono_ocultar_desde;
+  let titulo;
+  let detalle;
+  if (abonoPorVencer(user)) {
+    titulo = 'Tu abono está por vencer';
+    detalle = 'Está vigente hasta el ' + date(user.abono_vigente_hasta) + '.';
+  } else if (!user.abono_vigente && corte) {
+    titulo = user.abono_vigente_hasta ? 'Tu abono venció' : 'Tu inmobiliaria todavía no tiene un abono';
+    detalle = fechaActualArgentina() < corte
+      ? 'Tus avisos activos se ocultarán el ' + date(corte) + ' si no regularizás el abono.'
+      : 'Tus avisos ya no aparecen en las búsquedas. Entrá a Planes y pagos para renovar.';
+  } else {
+    return;
+  }
+
+  banner.querySelector('#renewal-banner-title').textContent = titulo;
+  banner.querySelector('#renewal-banner-date').textContent = detalle;
+  banner.hidden = false;
 }
 
 function submit(form, handler) {
@@ -181,7 +222,7 @@ function submit(form, handler) {
       if (target) result(target, '');
     }
     try {
-      await handler(new FormData(form), output);
+      await handler(new FormData(form), output, event.submitter);
     } catch (error) {
       if (output) result(output, note(error.message, 'error'));
     } finally {
@@ -293,6 +334,7 @@ function openAccountPanel() {
       <span class="tag">${h(roleNames[user.rol])}</span>
     </div>
     ${user.rol === 'ADMIN' ? '<a class="quiet account-admin-link" href="#admin">Panel de administración</a>' : ''}
+    ${canManageListings() ? '<a class="quiet" href="#planes">Planes y pagos</a>' : ''}
     <button class="quiet" type="button" id="logout">Cerrar sesión</button>`);
   for (const link of accountPanel.querySelectorAll('a')) link.onclick = () => closeAccountPanel();
   accountPanel.querySelector('#logout').onclick = () => {
@@ -318,7 +360,7 @@ function setupPasswordToggles(form) {
   }
 }
 
-function openAccount(register = false) {
+function openAccount(register = false, role = 'BUSCADOR') {
   result(dialogBody, `<h2 id="dialog-title">${register ? 'Crear cuenta' : 'Ingresar'}</h2><form id="login-form">
     ${register ? `${select('Tipo de cuenta', 'rol', [['BUSCADOR','Busco alquilar'], ['INMOBILIARIA','Soy una inmobiliaria']])}
       ${input('<span id="registro-nombre-label">Nombre</span>', 'nombre', 'required maxlength="100" autocomplete="given-name"')}
@@ -336,6 +378,7 @@ function openAccount(register = false) {
     <button class="quiet" id="toggle-account">${register ? 'Ya tengo cuenta' : 'Crear cuenta'}</button>`);
   const form = dialogBody.querySelector('#login-form');
   if (register) {
+    form.elements.rol.value = role;
     const contactName = form.elements.nombre_contacto;
     const updateRole = () => {
       const agency = form.elements.rol.value === 'INMOBILIARIA';
@@ -359,13 +402,46 @@ function openAccount(register = false) {
     }
     token = (await api('/auth/login', 'POST', credentials)).access_token;
     setUser(await api('/usuarios/me'), token);
+    await loadAccountFavorites();
     dialog.close();
     await route();
+    if (user?.rol === 'INMOBILIARIA' && !user.abono_vigente && !dialog.open) {
+      showAgencyPlanOffer();
+    }
+    if (abonoPorVencer(user) && !dialog.open) {
+      result(dialogBody, `<h2 id="dialog-title">Tu abono está por vencer</h2>
+        <p>Está vigente hasta el <strong>${h(date(user.abono_vigente_hasta))}</strong>.</p>
+        <a class="btn" href="#planes">Ver renovación</a>`);
+      dialogBody.querySelector('a').onclick = () => dialog.close();
+      dialog.showModal();
+    }
+    if (user?.rol === 'ADMIN') void showPaymentAlerts(routeVersion);
   });
   dialogBody.querySelector('#toggle-account').onclick = () => openAccount(!register);
   if (!dialog.open) dialog.showModal();
   dialogBody.querySelector('#login-form input')?.focus();
 }
+
+function showAgencyPlanOffer() {
+  result(dialogBody, `<div class="agency-plan-offer">
+    <div class="agency-plan-intro">
+      <h2 id="dialog-title">Dale más visibilidad a tus propiedades</h2>
+      <p>Elegí cómo mostrar tu cartera y destacá los avisos que más te interesa mover.</p>
+    </div>
+    <div class="agency-plan-benefits">
+      <p><strong>Gestioná tus avisos en un solo lugar</strong>
+        <span>Actualizá precios, fotos y disponibilidad de tus alquileres y ventas.</span></p>
+      <p><strong>Medí qué propiedades generan interés</strong>
+        <span>Consultá las visitas y los clics a WhatsApp de cada aviso.</span></p>
+      <p><strong>Destacá las propiedades que elijas</strong>
+        <span>Al destacarlo, tu aviso puede aparecer entre los primeros resultados cuando coincide con la búsqueda.</span></p>
+      <a class="btn" href="#planes">Ver planes y precios <span aria-hidden="true">→</span></a>
+    </div>
+  </div>`);
+  dialogBody.querySelector('a').onclick = () => dialog.close();
+  dialog.showModal();
+}
+
 account.onclick = () => {
   if (!user) openAccount();
   else if (accountPanel.hidden) openAccountPanel();
@@ -410,16 +486,48 @@ function favoriteButton(listing) {
     title="${saved ? 'Quitar de guardados' : 'Guardar aviso'}"><span aria-hidden="true">${saved ? '♥' : '♡'}</span></button>`;
 }
 
-function toggleFavorite(button) {
+async function loadAccountFavorites() {
+  const id = user?.id;
+  if (!id) return;
+  try {
+    const saved = await api('/usuarios/me/guardados');
+    if (user?.id === id) favorites = new Set(saved);
+  } catch {
+    // Un problema con los guardados no interrumpe la sesión.
+  }
+}
+
+async function toggleFavorite(button) {
   const id = Number(button.dataset.favorite);
-  if (favorites.has(id)) favorites.delete(id);
-  else favorites.add(id);
-  try { localStorage.setItem(favoriteStorageKey, JSON.stringify([...favorites])); }
-  catch { /* Los guardados quedan disponibles durante esta visita. */ }
-  const saved = favorites.has(id);
+  const saved = !favorites.has(id);
+  const cuenta = user?.id;
+  if (cuenta) {
+    button.disabled = true;
+    try {
+      await api('/usuarios/me/guardados/' + id, saved ? 'PUT' : 'DELETE');
+    } catch (error) {
+      button.title = error.message;
+      if (!button.nextElementSibling?.matches('[data-favorite-feedback]')) {
+        button.insertAdjacentHTML('afterend', '<small data-favorite-feedback role="status"></small>');
+      }
+      button.nextElementSibling.textContent = error.message;
+      return false;
+    } finally {
+      button.disabled = false;
+    }
+    if (user?.id !== cuenta) return false;
+  }
+  if (saved) favorites.add(id);
+  else favorites.delete(id);
+  if (!cuenta) {
+    try { localStorage.setItem(favoriteStorageKey, JSON.stringify([...favorites])); }
+    catch { /* Los guardados quedan disponibles durante esta visita. */ }
+  }
+  if (button.nextElementSibling?.matches('[data-favorite-feedback]')) button.nextElementSibling.remove();
   button.setAttribute('aria-pressed', String(saved));
   button.title = saved ? 'Quitar de guardados' : 'Guardar aviso';
   button.firstElementChild.textContent = saved ? '♥' : '♡';
+  return true;
 }
 
 function searchLink() {
@@ -428,6 +536,28 @@ function searchLink() {
 
 function sharedFavoritesLink(ids) {
   return '#guardados?avisos=' + [...ids].join(',');
+}
+
+function saveCurrentSearch() {
+  if (!user) {
+    openAccount();
+    return;
+  }
+  const link = searchLink();
+  const name = (searchOperation === 'venta' ? 'Comprar' : 'Alquilar') +
+    (filters.has('zona') ? ' en ' + filters.get('zona') : '');
+  result(dialogBody, `<h2 id="dialog-title">Guardar búsqueda</h2>
+    <form>
+      ${input('Nombre de la búsqueda', 'nombre', `required maxlength="100" value="${h(name)}"`)}
+      ${submitButton('Guardar búsqueda')}
+    </form>`);
+  submit(dialogBody.querySelector('form'), async (data) => {
+    await api('/usuarios/me/busquedas', 'PUT', { nombre: data.get('nombre').trim(), enlace: link });
+    result(dialogBody, `<h2 id="dialog-title">Búsqueda guardada</h2>
+      <a class="btn" href="#guardados">Ver mis guardados</a>`);
+    dialogBody.querySelector('a').onclick = () => dialog.close();
+  });
+  dialog.showModal();
 }
 
 function setSearchFilters(next, forSale = searchOperation === 'venta') {
@@ -470,7 +600,7 @@ async function copyLink(button) {
 const isSale = (listing) => listing.operacion === 'venta';
 const askingPrice = (listing) => isSale(listing) ? listing.precio_venta : listing.precio_alquiler;
 const monthlyCost = (listing) => isSale(listing) ? null : api('/publicaciones/' + listing.id + '/costo-real');
-const sponsoredBadge = '<span class="sponsored-badge">Patrocinado</span>';
+const sponsoredBadge = '<span class="sponsored-badge">Destacado</span>';
 
 function listingCard(listing, cost, canCompare = true) {
   const p = listing.propiedad;
@@ -506,11 +636,10 @@ async function showListingCards(container, listings, { comparison, onFavorite } 
 
   result(container, `<div class="cards">${listings.map((listing, index) =>
     listingCard(listing, costs[index].value, Boolean(comparison))).join('')}</div>`);
-  container.onclick = (event) => {
+  container.onclick = async (event) => {
     const favorite = event.target.closest('[data-favorite]');
     if (favorite) {
-      toggleFavorite(favorite);
-      onFavorite?.(favorite);
+      if (await toggleFavorite(favorite)) onFavorite?.(favorite);
     }
     comparison?.select(event);
   };
@@ -595,7 +724,7 @@ function populateCatalogFilter(control, options) {
 
 const resultsPageSize = 9;
 const selectSponsored = (listings) => listings.filter((p) => p.patrocinada)
-  .sort((a, b) => b.id - a.id).slice(0, 3);
+  .sort((a, b) => b.id - a.id);
 
 function spreadSponsored(listings) {
   const ordered = listings.filter((p) => !p.patrocinada);
@@ -612,8 +741,10 @@ function spreadSponsored(listings) {
 
 function sponsoredListings(featured) {
   if (!featured.length) return '';
-  return `<h2 id="sponsored-title">Avisos patrocinados</h2>
-    <div class="sponsored-list">
+  return `<h2 id="sponsored-title">Destacados</h2>
+    <div class="sponsored-carousel">
+    ${carouselControls('sponsored-list', 'Recorrer destacados')}
+    <div class="sponsored-list" id="sponsored-list" tabindex="0" role="group" aria-labelledby="sponsored-title">
       ${featured.map((p) => {
         const photo = p.fotos?.[0];
         return `<a class="sponsored-card" href="#publicacion/${p.id}">
@@ -625,7 +756,7 @@ function sponsoredListings(featured) {
           </div>
         </a>`;
       }).join('')}
-    </div>`;
+    </div></div>`;
 }
 
 async function search(version, returningToResults) {
@@ -634,46 +765,58 @@ async function search(version, returningToResults) {
   result(main, `<section class="hero"><div class="wrap hero-inner">
     <div class="hero-copy">
       <p class="eyebrow">${forSale ? 'Propiedades en venta en CABA' : 'Alquileres en CABA'}</p>
-      <h1>${forSale ? 'Encontrá tu próximo <em>hogar en CABA</em>' : '¿Cuánto te cuesta <em>vivir acá?</em>'}</h1>
-      <p>${forSale ? 'Explorá propiedades en venta por barrio, compará sus precios y contactá al anunciante para coordinar una visita.' :
-        'Compará el alquiler con el costo mensual de vivir ahí. Mirá cuánto necesitás para entrar y cómo podrían cambiar los gastos con los ajustes.'}</p>
-      <button class="btn hero-cta" type="button">${forSale ? 'Explorar propiedades en venta' : 'Explorar alquileres'} <span aria-hidden="true">↓</span></button>
+      <h1>${forSale ? 'Encontrá tu lugar <em>en Buenos Aires.</em>' : 'Tu próximo hogar, <em>con cuentas claras.</em>'}</h1>
+      <p>${forSale ? 'Compará propiedades por barrio y precio. Cuando encuentres una que te guste, contactá al anunciante para coordinar una visita.' :
+        'Compará alquileres por su costo mensual, mirá cuánto necesitás para entrar y estimá cómo puede cambiar el precio con los ajustes.'}</p>
+      <div class="hero-actions">
+        <button class="btn hero-cta" type="button">${forSale ? 'Explorar propiedades en venta' : 'Explorar alquileres'} <span aria-hidden="true">↓</span></button>
+        ${!user ? '<button class="hero-agency" type="button" data-agency-register>Publicar como inmobiliaria <span aria-hidden="true">→</span></button>' :
+          user.rol === 'INMOBILIARIA' ? '<a class="hero-agency" href="#mis-publicaciones">Gestionar mis avisos <span aria-hidden="true">→</span></a>' : ''}
+      </div>
       <div class="hero-neighborhoods" role="group" aria-label="Buscar por barrio" hidden></div>
     </div>
     <aside class="hero-data" id="featured" aria-live="polite">
       <div class="hero-feature-empty"><small>Cargando publicación…</small></div>
     </aside>
   </div></section>
-  <section class="wrap content">
+  <section class="wrap content catalog-content">
   <section id="sponsored-listings" class="sponsored-strip" aria-labelledby="sponsored-title" hidden></section>
-  <div class="filters">
-    <div class="section-head"><h2>${forSale ? 'Buscar propiedades en venta' : 'Buscar alquileres'}</h2></div>
+  <section class="filters" aria-labelledby="search-title">
+    <header class="search-heading"><h2 id="search-title">${forSale ? 'Buscar propiedades en venta' : 'Buscar alquileres'}</h2></header>
     <form id="filters">
+      <div class="search-fields${forSale ? '' : ' search-fields-rent'}">
       ${select('Barrio', 'zona', [['', 'Todos los barrios']])}
       ${select('Ambientes', 'ambientes', [['', 'Todos los ambientes']])}
       ${select('Mascotas', 'permite_mascotas', [['','Indistinto'],['true','Acepta mascotas'],['false','No acepta mascotas']])}
       ${select('Moneda', 'moneda', [['','Todas'], ...currency])}
-      <details><summary>Rangos y orden</summary><div class="fields">
+      ${forSale ? '' : input('Costo mensual máximo', 'costo_real_max',
+        'type="number" min="0" step="0.01" placeholder="Ej. 700000" aria-describedby="budget-hint"')}
+      ${forSale ? '' : '<small class="full" id="budget-hint">Incluye el alquiler y los gastos mensuales informados. Si cargás un máximo y dejás la moneda sin elegir, se usa ARS.</small>'}
+      </div>
+      <details class="search-advanced"><summary>Más filtros y orden</summary><div class="fields">
         ${forSale ? `
           ${input('Precio de venta mínimo', 'precio_min', 'type="number" min="0" step="0.01"')}
           ${input('Precio de venta máximo', 'precio_max', 'type="number" min="0" step="0.01"')}` : `
         ${select('Garantía', 'tipo_garantia', [['', 'Todas las garantías']])}
         ${input('Alquiler mínimo', 'alquiler_min', 'type="number" min="0" step="0.01"')}
         ${input('Alquiler máximo', 'alquiler_max', 'type="number" min="0" step="0.01"')}
-        ${input('Costo mensual mínimo', 'costo_real_min', 'type="number" min="0" step="0.01"')}
-        ${input('Costo mensual máximo', 'costo_real_max', 'type="number" min="0" step="0.01"')}`}
+        ${input('Costo mensual mínimo', 'costo_real_min', 'type="number" min="0" step="0.01"')}`}
         ${select('Ordenar por', 'orden', [['','Predeterminado'], ...(forSale ?
           [['precio','Precio de venta']] : [['alquiler','Alquiler'], ['costo_real','Costo mensual']]), ['precio_m2','Precio por m²']])}
         ${select('Sentido', 'descendente', [['false','Menor a mayor'],['true','Mayor a menor']])}
         <small class="full">Para filtrar u ordenar montos, elegí una moneda.</small>
       </div></details>
-      <div class="actions"><button class="btn">Buscar</button><button class="quiet" type="reset">Limpiar</button></div>
+      <div class="search-actions">
+        <button class="search-reset" type="reset">Limpiar filtros</button>
+        <button class="btn search-submit" type="submit">Ver resultados <span aria-hidden="true">→</span></button>
+      </div>
     </form>
-  </div>
+  </section>
   <div class="results-toolbar">
     <div id="active-filters" class="filter-chips" aria-label="Filtros activos"></div>
     <div class="actions">
       <a class="quiet" href="#guardados" id="saved-link">Guardados (${favorites.size})</a>
+      <button type="button" class="quiet" id="save-search" hidden>Guardar búsqueda</button>
       <div class="share-control"><button class="quiet" type="button" id="share-search">Copiar búsqueda</button>
         <span data-copy-status role="status"></span></div>
     </div>
@@ -693,6 +836,8 @@ async function search(version, returningToResults) {
   const chips = main.querySelector('#active-filters');
   const savedLink = main.querySelector('#saved-link');
   const share = main.querySelector('#share-search');
+  const saveSearch = main.querySelector('#save-search');
+  saveSearch.onclick = saveCurrentSearch;
   const comparison = setupComparison(results, savedLink);
   const allListings = api(catalog);
   let listings = [];
@@ -713,6 +858,7 @@ async function search(version, returningToResults) {
     savedLink.textContent = `Guardados (${favorites.size})`;
     result(chips, filterChips());
     share.dataset.copy = searchLink();
+    saveSearch.hidden = !filters.size;
     comparison.update();
   }
 
@@ -751,6 +897,8 @@ async function search(version, returningToResults) {
       if (!filters.size) {
         result(sponsored, sponsoredListings(featuredListings));
         sponsored.hidden = !featuredListings.length;
+        const carousel = sponsored.querySelector('.sponsored-list');
+        if (carousel) setupListingCarousel(sponsored, carousel, carousel);
       }
       const progress = initial && returningToResults && resultsProgress?.link === searchLink()
         ? resultsProgress : null;
@@ -776,13 +924,18 @@ async function search(version, returningToResults) {
     }
   }
   function applyFilters(next) {
+    next = query(next);
+    if (next.has('costo_real_max') && !next.has('moneda')) next.set('moneda', 'ARS');
     setSearchFilters(next);
     history.replaceState(history.state, '', searchLink());
     share.parentElement.querySelector('[data-copy-status]').textContent = '';
     syncForm();
-    load();
+    return load();
   }
-  form.onsubmit = (event) => { event.preventDefault(); applyFilters(new FormData(form)); };
+  form.onsubmit = (event) => {
+    event.preventDefault();
+    return applyFiltersAndScroll(new FormData(form));
+  };
   form.onreset = (event) => { event.preventDefault(); applyFilters([]); };
   chips.onclick = (event) => {
     const chip = event.target.closest('[data-remove-filter]');
@@ -796,25 +949,32 @@ async function search(version, returningToResults) {
     applyFilters(next);
     (chips.querySelector('button') || form.elements.zona).focus({preventScroll: true});
   };
-  results.onclick = (event) => {
+  results.onclick = async (event) => {
     const favorite = event.target.closest('[data-favorite]');
     if (favorite) {
-      toggleFavorite(favorite);
-      savedLink.textContent = `Guardados (${favorites.size})`;
+      if (await toggleFavorite(favorite)) savedLink.textContent = `Guardados (${favorites.size})`;
     }
     comparison.select(event);
   };
-  main.querySelector('.hero-cta').onclick = () => {
+  function scrollToResults() {
     const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     results.focus({ preventScroll: true });
     results.scrollIntoView({ behavior: reduceMotion ? 'instant' : 'smooth', block: 'start' });
-  };
+  }
+  async function applyFiltersAndScroll(data) {
+    const loading = applyFilters(data);
+    const current = revision;
+    await loading;
+    if (version === routeVersion && current === revision) scrollToResults();
+  }
+  main.querySelector('.hero-cta').onclick = scrollToResults;
+  main.querySelector('[data-agency-register]')?.addEventListener('click', () => openAccount(true, 'INMOBILIARIA'));
   quickZones.onclick = (event) => {
     const button = event.target.closest('[data-zone]');
     if (!button) return;
     form.elements.zona.value = button.dataset.zone;
-    form.requestSubmit();
-    form.elements.zona.focus();
+    if (!form.reportValidity()) return;
+    return applyFiltersAndScroll(new FormData(form));
   };
   const featuredLoad = (async () => {
     try {
@@ -825,13 +985,13 @@ async function search(version, returningToResults) {
       populateCatalogFilter(form.elements.ambientes, catalogOptions(listings.map((listing) => listing.propiedad.ambientes)));
       if (!forSale) populateCatalogFilter(form.elements.tipo_garantia,
         catalogOptions(listings.map((listing) => listing.tipo_garantia_aceptada)));
-      result(quickZones, neighborhoods.slice(0, 5).map((zone) =>
+      result(quickZones, '<span>Explorá por barrio</span>' + neighborhoods.slice(0, 5).map((zone) =>
         `<button type="button" data-zone="${h(zone)}">${h(zone)}</button>`).join(''));
       quickZones.hidden = !neighborhoods.length;
       const p = listings.find((item) => !item.patrocinada && item.fotos?.length) ||
         listings.find((item) => !item.patrocinada) || listings[0];
       if (!p) {
-        result(featured, '<div class="hero-feature-empty"><p>Elegí un barrio para explorar las publicaciones.</p></div>');
+        result(featured, '<div class="hero-feature-empty"><p>Por ahora no hay propiedades publicadas en esta sección.</p></div>');
         return;
       }
       const cost = await monthlyCost(p);
@@ -839,24 +999,43 @@ async function search(version, returningToResults) {
       const cover = p.fotos?.[0];
       const isExample = ['semilla', 'demo-fotos', 'demo-venta'].includes(p.fuente);
       result(featured, `
-        ${cover ? `<img class="hero-photo" src="/api${h(cover.url)}" alt="Foto de la propiedad en ${h(p.propiedad.zona)}" fetchpriority="high">` : ''}
+        ${cover ? `<div class="hero-visual"><img class="hero-photo" src="/api${h(cover.url)}" alt="Foto de la propiedad en ${h(p.propiedad.zona)}" fetchpriority="high"></div>` : ''}
         <div class="hero-feature-body">
           <div class="hero-feature-head">
             <div><h2>${h(p.propiedad.zona)}</h2><small>${h(metadata(p.propiedad))}</small></div>
             ${p.patrocinada ? sponsoredBadge :
               isExample ? '<span class="tag">Aviso de ejemplo</span>' : ''}
           </div>
-          <dl class="hero-prices">
+          <dl class="hero-prices${forSale ? ' hero-prices-sale' : ''}">
             <div><dt>${forSale ? 'Precio de venta' : 'Alquiler publicado'}</dt><dd>${h(money(askingPrice(p)))}</dd></div>
             ${forSale ? '' : `<div><dt>Costo mensual informado</dt><dd>${h(money(cost.total))}</dd></div>`}
           </dl>
-          <a href="#publicacion/${p.id}">${forSale ? 'Ver propiedad' : 'Ver desglose'} <span aria-hidden="true">↗</span></a>
+          <div class="hero-feature-foot">
+            ${cost?.faltantes?.length ? '<small>Hay gastos sin informar</small>' : ''}
+            <a href="#publicacion/${p.id}">${forSale ? 'Ver propiedad' : 'Ver desglose'} <span aria-hidden="true">→</span></a>
+          </div>
         </div>`);
     } catch {
       result(featured, note('No pudimos cargar la publicación destacada.'));
     }
   })();
   await Promise.all([load(true), featuredLoad]);
+}
+
+async function loadSavedSearches(panel) {
+  if (!user) return;
+  const output = panel.querySelector('[data-saved-searches]');
+  try {
+    const searches = await api('/usuarios/me/busquedas');
+    if (!output.isConnected) return;
+    result(output, searches.length ? `<ul class="saved-search-list">${searches.map(({ nombre, enlace }) => `
+      <li><a class="quiet" href="${h(enlace)}">${h(nombre)}</a>
+      <button type="button" class="quiet" data-remove-search="${h(enlace)}"
+        aria-label="Quitar búsqueda ${h(nombre)}">Quitar</button></li>`).join('')}</ul>`
+      : '<p class="muted">Aplicá filtros en el catálogo y tocá «Guardar búsqueda» para retomarla después.</p>');
+  } catch (error) {
+    if (output.isConnected) result(output, note(error.message, 'error'));
+  }
 }
 
 async function savedListingsPage(queryString, version) {
@@ -877,11 +1056,51 @@ async function savedListingsPage(queryString, version) {
           <span data-copy-status role="status"></span></div>
       </div>
     </div>
+    ${isShared ? '' : `<section class="panel saved-searches" id="saved-searches">
+      <h2>Búsquedas guardadas</h2>
+      ${user ? '<div data-saved-searches aria-live="polite">Cargando…</div>' :
+        loginPrompt('Ingresá para guardar búsquedas y sincronizar tus favoritos.')}
+      ${user && [...readFavorites()].some((id) => !favorites.has(id)) ?
+        '<button class="quiet" type="button" id="import-favorites">Importar avisos de este navegador</button>' : ''}
+      <div data-saved-search-status role="status"></div>
+    </section>`}
     <div id="saved-results"></div>
     ${comparisonTray}
   </div>`);
 
   const output = main.querySelector('#saved-results');
+  const searchPanel = main.querySelector('#saved-searches');
+  if (searchPanel && user) {
+    void loadSavedSearches(searchPanel);
+    searchPanel.onclick = async (event) => {
+      const remove = event.target.closest('[data-remove-search]');
+      const importing = event.target.closest('#import-favorites');
+      if (!remove && !importing) return;
+      const status = searchPanel.querySelector('[data-saved-search-status]');
+      const button = remove || importing;
+      button.disabled = true;
+      try {
+        if (remove) {
+          await api('/usuarios/me/busquedas?' + new URLSearchParams({ enlace: remove.dataset.removeSearch }), 'DELETE');
+          await loadSavedSearches(searchPanel);
+        } else {
+          const browserIds = [...readFavorites()].filter((id) => !favorites.has(id));
+          const imported = await Promise.allSettled(browserIds.map((id) =>
+            api('/usuarios/me/guardados/' + id, 'PUT')));
+          await loadAccountFavorites();
+          if (!searchPanel.isConnected) return;
+          const count = imported.filter((item) => item.status === 'fulfilled').length;
+          await route();
+          const feedback = main.querySelector('[data-saved-search-status]');
+          if (feedback) result(feedback, note(`Avisos importados: ${count} de ${browserIds.length}.`));
+        }
+      } catch (error) {
+        if (status.isConnected) result(status, note(error.message, 'error'));
+      } finally {
+        button.disabled = false;
+      }
+    };
+  }
   const share = main.querySelector('#share-saved');
   const count = main.querySelector('#saved-count');
   const back = main.querySelector('.back');
@@ -1023,6 +1242,304 @@ function costPanel(title, cost, tone) {
     ${missing(cost.faltantes)}</section>`;
 }
 
+const planNames = { abono: 'Abono inmobiliaria', patrocinio: 'Aviso destacado' };
+const mediosPago = { transferencia: 'Transferencia', mercado_pago: 'Mercado Pago', otro: 'Otro' };
+
+function camposConciliacion(referencia) {
+  return `${input('Importe acreditado en ARS', 'importe_recibido_ars', 'type="number" min="1" max="2000000000" step="1" required')}
+    ${select('Medio de pago', 'medio', Object.entries(mediosPago))}
+    ${input('Referencia que figura en la acreditación', 'referencia_acreditada', `required maxlength="100" value="${h(referencia)}"`)}`;
+}
+
+function datosConciliacion(data) {
+  return {
+    importe_recibido_ars: Number(data.get('importe_recibido_ars')),
+    medio: data.get('medio'),
+    referencia_acreditada: data.get('referencia_acreditada').trim(),
+  };
+}
+const precioPlan = (monto) => money({ monto, moneda: 'ARS' });
+
+function historialPagos(pagos) {
+  if (!pagos.length) return '<p class="muted">Todavía no hay pagos registrados.</p>';
+  const estados = { pendiente: 'En revisión', confirmado: 'Confirmado', rechazado: 'Requiere corrección' };
+  return `<div class="table-wrap"><table>
+    <thead><tr><th>Concepto</th><th>Importe</th><th>Fecha</th><th>Referencia</th><th>Estado</th></tr></thead>
+    <tbody>${pagos.map((pago) => `<tr>
+      <td><strong>${h(planNames[pago.concepto])}</strong>${pago.titulo_aviso ? `<br><small>${h(pago.titulo_aviso)}</small>` : ''}</td>
+      <td>${pago.importe_recibido_ars != null ? `<strong>${h(precioPlan(pago.importe_recibido_ars))}</strong><br><small>Acreditado</small>`
+        : (pago.importe_ars == null ? '—' : `${h(precioPlan(pago.importe_ars))}<br><small>Esperado</small>`)}</td>
+      <td>${h(date(pago.pagado_el || pago.informado_el))}</td>
+      <td>${h(pago.referencia_acreditada || pago.referencia || '—')}${pago.medio ? `<br><small>${h(mediosPago[pago.medio])}</small>` : ''}</td>
+      <td><strong>${h(estados[pago.estado])}</strong>${pago.motivo ? `<br><small>${h(pago.motivo)}</small>` : ''}</td>
+    </tr>`).join('')}</tbody>
+  </table></div>`;
+}
+
+async function refreshPaymentHistory() {
+  const historial = main.querySelector('#payment-history');
+  if (!historial) return;
+  try {
+    const pagos = await api('/planes/pagos');
+    if (historial.isConnected) result(historial, '<h2>Historial de pagos</h2>' + historialPagos(pagos));
+  } catch (error) {
+    if (historial.isConnected) historial.insertAdjacentHTML('beforeend', note(error.message, 'error'));
+  }
+}
+
+function estadoDelAbono(precios) {
+  if (user?.rol !== 'INMOBILIARIA') return '';
+  const hoy = fechaActualArgentina();
+  const corte = precios.abono_ocultar_desde;
+  if (!corte) return '';
+  if (precios.abono_vigente_hasta && precios.abono_vigente_hasta >= hoy) {
+    return note('Abono vigente hasta el ' + date(precios.abono_vigente_hasta) + '.');
+  }
+  if (hoy < corte) {
+    return note('Tus avisos siguen visibles hasta que empiece el ' + date(corte) + '. Activá o renová tu abono para evitar la pausa.', 'warn');
+  }
+  const borrar = precios.abono_eliminar_desde;
+  const plazo = borrar ? ' Los avisos guardados se eliminan a partir del ' + date(borrar) + ' si no renovás.' : '';
+  const revision = precios.abono_pago_pendiente ? ' La eliminación queda en espera mientras revisamos el pago informado.' : '';
+  return note('Tus avisos están ocultos por vencimiento del abono.' + (revision || plazo), 'warn');
+}
+
+function datosTransferenciaHTML(pago) {
+  return `${pago.modo_prueba ? note('Modo de prueba. No hagas una transferencia real.', 'warn') : ''}
+    <dl class="transfer-details">
+      ${[['Titular', pago.titular], ['Alias', pago.alias], ['CVU', pago.cvu]].map(([nombre, valor]) =>
+        `<div class="row"><dt>${nombre}</dt><dd>${h(valor)}
+          ${nombre !== 'Titular' ? `<button class="quiet" type="button" data-transfer-copy="${h(valor)}" aria-label="Copiar ${nombre}">Copiar</button>` : ''}
+        </dd></div>`).join('')}
+    </dl><div class="transfer-status" role="status"></div>`;
+}
+
+function prepararCopiadoTransferencia(content) {
+  for (const button of content.querySelectorAll('[data-transfer-copy]')) {
+    button.onclick = async () => {
+      const status = content.querySelector('.transfer-status');
+      try {
+        await navigator.clipboard.writeText(button.dataset.transferCopy);
+        status.textContent = 'Copiado.';
+      } catch {
+        status.textContent = 'Podés seleccionar y copiar el dato manualmente.';
+      }
+    };
+  }
+}
+
+async function mostrarTransferencia(codigo, version) {
+  result(dialogBody, `<div data-transfer-content><h2 id="dialog-title">Pago por transferencia</h2>
+    <p role="status">Cargando datos de pago…</p></div>`);
+  const content = dialogBody.querySelector('[data-transfer-content]');
+  dialog.showModal();
+  dialog.addEventListener('close', () => {
+    if (!dialog.open && content.isConnected) content.remove();
+  }, { once: true });
+
+  try {
+    const pago = await api('/planes/' + codigo + '/transferencia');
+    if (!dialog.open || !content.isConnected || version !== routeVersion) return;
+    result(content, `<h2 id="dialog-title">Pago por transferencia</h2>
+      <p class="muted">${planNames[codigo]} · Pesos argentinos</p>
+      <strong class="value">${h(precioPlan(pago.importe_ars))}</strong>
+      ${datosTransferenciaHTML(pago)}
+      <p class="muted">Guardá el comprobante para coordinar la confirmación con Alquilómetro.
+        Informá el pago desde la tarjeta de ${planNames[codigo]}.</p>`);
+    prepararCopiadoTransferencia(content);
+  } catch (error) {
+    if (dialog.open && content.isConnected) {
+      result(content, '<h2 id="dialog-title">Pago por transferencia</h2>' + note(error.message, 'error'));
+    }
+  }
+}
+
+function planPaymentActions(codigo, checkout) {
+  return `<div class="actions plan-actions">
+    ${checkout ? `<a class="btn" href="${h(checkout)}" target="_blank" rel="noopener noreferrer">Pagar con Mercado Pago ↗</a>` :
+      '<button class="btn" type="button" disabled>Pagar con Mercado Pago</button>'}
+    <button class="${checkout ? 'quiet' : 'btn'}" type="button" data-pay-plan="${codigo}"
+      aria-label="Pagar por transferencia · ${planNames[codigo]}">Pagar por transferencia</button>
+  </div>`;
+}
+
+function reportAgencyPayment(button) {
+  result(dialogBody, `<h2 id="dialog-title">Informar pago de abono</h2>
+    <p>Usá el número de operación que figura en el comprobante.</p>
+    <form>
+      ${input('Número de operación o referencia', 'referencia', 'required maxlength="100"')}
+      ${submitButton('Informar pago')}
+    </form>`);
+  const form = dialogBody.querySelector('form');
+  submit(form, async (data) => {
+    await api('/planes/abono/pago', 'POST', { referencia: data.get('referencia').trim() });
+    button.disabled = true;
+    button.textContent = 'Pago pendiente de revisión';
+    void refreshPaymentHistory();
+    if (dialog.open && form.isConnected) {
+      result(dialogBody, '<h2 id="dialog-title">Pago informado</h2>' +
+        note('Recibimos la referencia. Tu abono quedará vigente cuando confirmemos el pago.'));
+    }
+  });
+  dialog.showModal();
+}
+
+function sponsorshipListingOption(aviso) {
+  const portada = aviso.fotos?.[0];
+  const details = [aviso.propiedad.zona, metadata(aviso.propiedad)].filter(Boolean).join(' · ');
+  return `<label class="sponsorship-option">
+    ${portada ? `<img src="/api${h(portada.url)}" alt="" loading="lazy">` :
+      '<span class="sponsorship-no-photo">Sin foto</span>'}
+    <span class="sponsorship-option-info">
+      <strong>${h(aviso.titulo)}</strong>
+      <small>${h(details)}</small>
+      <span class="sponsorship-option-price">${isSale(aviso) ? 'Venta' : 'Alquiler'} · ${h(money(askingPrice(aviso)))}</span>
+      ${aviso.patrocinio_pendiente ? '<small class="sponsorship-option-pending">Pago pendiente de revisión</small>' : ''}
+    </span>
+    <input type="radio" name="aviso" value="${aviso.id}" required ${aviso.patrocinio_pendiente ? 'disabled' : ''}>
+  </label>`;
+}
+
+async function reportSponsorship(version, precios) {
+  const cupo = precios.cupo_avisos_activos;
+  result(dialogBody, '<h2 id="dialog-title">Destacar un aviso</h2><p role="status">Cargando tus avisos…</p>');
+  const loading = dialogBody.querySelector('[role="status"]');
+  dialog.showModal();
+  try {
+    const avisos = await api('/publicaciones/mis');
+    if (!dialog.open || !loading.isConnected || version !== routeVersion) return;
+    const activos = avisos.filter((p) => p.estado === 'activa').slice(0, cupo);
+    const puedeElegir = activos.some((aviso) => !aviso.patrocinio_pendiente);
+    result(dialogBody, `<div class="sponsorship-report">
+      <h2 id="dialog-title">Destacar un aviso</h2>
+      <p class="muted">Acá aparecen hasta ${number(cupo)} avisos activos de tu abono.
+        Si no encontrás el que buscás, activalo en <a href="#mis-publicaciones" class="sponsorship-manage-link">Mis publicaciones</a>.
+        Si tu cupo está lleno, primero pausá otro aviso para liberar un lugar.</p>
+      ${activos.length ? `<form id="sponsorship-report-form">
+        <fieldset class="sponsorship-choices">
+          <legend>Elegí el aviso que querés destacar</legend>
+          <div class="sponsorship-options">${activos.map(sponsorshipListingOption).join('')}</div>
+        </fieldset>
+        ${puedeElegir ? `<button type="button" class="btn" id="sponsor-continue" disabled>Continuar al pago</button>
+          <div id="sponsor-payment-step" hidden>
+            <p id="sponsor-payment-summary"></p>
+            ${planPaymentActions('patrocinio', precios.patrocinio_mercado_pago_url)}
+            <div id="sponsor-transfer-details" aria-live="polite"></div>
+            ${input('Número de operación o referencia', 'referencia', 'required maxlength="100" disabled')}
+            ${submitButton('Informar pago')}
+          </div>` : note('Todos tus avisos activos tienen un pago en revisión.')}
+      </form>` : note('Todavía no tenés avisos activos para destacar.')}</div>`);
+    dialogBody.querySelector('.sponsorship-manage-link').onclick = () => dialog.close();
+    const form = dialogBody.querySelector('#sponsorship-report-form');
+    if (!form || !puedeElegir) return;
+    const continuar = form.querySelector('#sponsor-continue');
+    const paso = form.querySelector('#sponsor-payment-step');
+    const datos = form.querySelector('#sponsor-transfer-details');
+    let avisoElegido;
+    form.querySelector('fieldset').onchange = () => {
+      continuar.disabled = !form.querySelector('input[name="aviso"]:checked');
+    };
+    continuar.onclick = () => {
+      const elegido = form.querySelector('input[name="aviso"]:checked');
+      avisoElegido = activos.find((aviso) => String(aviso.id) === elegido?.value);
+      if (!avisoElegido) return;
+      form.querySelector('fieldset').disabled = true;
+      continuar.hidden = true;
+      form.querySelector('#sponsor-payment-summary').textContent =
+        `${avisoElegido.titulo} · ${precioPlan(precios.patrocinio_ars)} · ${precios.patrocinio_dias} días`;
+      paso.hidden = false;
+      form.elements.referencia.disabled = false;
+      paso.querySelector('button:not(:disabled), a')?.focus();
+    };
+    paso.querySelector('[data-pay-plan]').onclick = async () => {
+      result(datos, '<p role="status">Cargando datos…</p>');
+      try {
+        const pago = await api('/planes/patrocinio/transferencia');
+        if (!datos.isConnected || !dialog.open) return;
+        result(datos, datosTransferenciaHTML(pago));
+        prepararCopiadoTransferencia(datos);
+      } catch (error) {
+        if (datos.isConnected) result(datos, note(error.message, 'error'));
+      }
+    };
+    submit(form, async (data) => {
+      if (!avisoElegido) return;
+      await api('/planes/patrocinios/' + avisoElegido.id + '/pago', 'POST', {
+        referencia: data.get('referencia').trim(),
+      });
+      void refreshPaymentHistory();
+      if (dialog.open && form.isConnected) {
+        result(dialogBody, '<h2 id="dialog-title">Pago informado</h2>' +
+          note('El aviso quedó pendiente de revisión. El aviso se destaca cuando confirmemos el pago.'));
+      }
+    });
+  } catch (error) {
+    if (dialog.open && loading.isConnected && version === routeVersion) {
+      result(dialogBody, '<h2 id="dialog-title">Informar pago de aviso destacado</h2>' + note(error.message, 'error'));
+    }
+  }
+}
+
+async function planesPage(version) {
+  if (!canManageListings()) {
+    result(main, `<div class="wrap content"><h1>Planes y pagos</h1>
+      <div class="panel">${user ? note('Los planes requieren una cuenta de inmobiliaria o administradora.') :
+        loginPrompt('Ingresá con tu cuenta de inmobiliaria o administradora para ver los planes.')}</div></div>`);
+    return;
+  }
+  const [precios, historial] = await Promise.all([api('/planes'), api('/planes/pagos')]);
+  if (version !== routeVersion) return;
+  const avisosOcultos = precios.abono_ocultar_desde && fechaActualArgentina() >= precios.abono_ocultar_desde;
+  result(main, `<div class="wrap content planes-page">
+    <a class="back" href="#mis-publicaciones">Volver a Mis publicaciones</a>
+    <header class="plans-header">
+      <h1>Planes y pagos</h1>
+      <p>Publicá las propiedades de tu inmobiliaria y dale más visibilidad a los avisos que quieras destacar.</p>
+    </header>
+    ${precios.modo_prueba ? note('Los importes son de prueba. El pago con Mercado Pago está deshabilitado.', 'warn') : ''}
+    ${estadoDelAbono(precios)}
+    <div class="pair plans-grid">
+      <section class="panel plan-card plan-card-agency">
+        <h2>${planNames.abono}</h2>
+        <p class="plan-description">Tu cartera de alquileres y ventas, en un solo lugar.</p>
+        <p class="plan-price"><strong class="value">${h(precioPlan(precios.abono_mensual_ars))}</strong> <small>por mes</small></p>
+        <ul class="plan-benefits">
+          <li><strong>Hasta ${number(precios.cupo_avisos_activos)} avisos activos</strong> de alquiler o venta.</li>
+          <li>Editá precios, fotos y disponibilidad desde tu panel.</li>
+          <li>Consultá las visitas y los clics a WhatsApp de cada aviso.</li>
+        </ul>
+        ${planPaymentActions('abono', precios.abono_mercado_pago_url)}
+        ${user.rol === 'INMOBILIARIA' ? `<button class="quiet report-payment" id="report-agency-payment" type="button"
+          ${precios.abono_pago_pendiente ? 'disabled' : ''}>
+          ${precios.abono_pago_pendiente ? 'Pago pendiente de revisión' : 'Ya pagué · Informar pago'}
+        </button>` : ''}
+      </section>
+      <section class="panel plan-card plan-card-sponsor">
+        <h2>${planNames.patrocinio}</h2>
+        <p class="plan-description">Dale un empujón a una propiedad puntual.</p>
+        <p class="plan-price"><strong class="value">${h(precioPlan(precios.patrocinio_ars))}</strong> <small>por aviso</small></p>
+        <ul class="plan-benefits">
+          <li><strong>${number(precios.patrocinio_dias)} días como destacado</strong> para el aviso que elijas.</li>
+          <li>Cartel verde ${sponsoredBadge} sobre la foto del aviso.</li>
+          <li><strong>Aparecé entre los primeros resultados</strong> en las búsquedas que coincidan con tu aviso, con el orden predeterminado.</li>
+        </ul>
+        ${user.rol === 'INMOBILIARIA' ? (avisosOcultos
+          ? note('Renová el abono para volver a mostrar tus avisos y poder destacarlos.', 'warn')
+          : '<button class="btn report-payment" id="report-sponsorship" type="button">Elegir aviso y pagar</button>') : ''}
+      </section>
+    </div>
+    <p class="plans-payment-note">La acreditación del pago se confirma manualmente.</p>
+    <section class="panel" id="payment-history"><h2>Historial de pagos</h2>${historialPagos(historial)}</section>
+  </div>`);
+  for (const button of main.querySelectorAll('[data-pay-plan]')) {
+    button.onclick = () => mostrarTransferencia(button.dataset.payPlan, version);
+  }
+  const report = main.querySelector('#report-sponsorship');
+  if (report) report.onclick = () => reportSponsorship(version, precios);
+  const reportAgency = main.querySelector('#report-agency-payment');
+  if (reportAgency) reportAgency.onclick = () => reportAgencyPayment(reportAgency);
+}
+
 function accountPage(params) {
   if (!user) {
     result(main, `<div class="wrap content"><h1>Mi cuenta</h1>
@@ -1093,18 +1610,18 @@ function validatePhotos(photos, available) {
   if (photos.length > available) {
     throw new Error(`Podés guardar hasta ${maxListingPhotos} fotos por publicación.`);
   }
-  if (photos.some((photo) => photo.size > 5 * 1024 * 1024)) {
-    throw new Error('Cada foto puede pesar hasta 5 MB.');
+  if (photos.some((photo) => photo.size > maxListingPhotoMB * 1024 * 1024)) {
+    throw new Error(`Cada foto puede pesar hasta ${maxListingPhotoMB} MB.`);
   }
 }
 
-function setupPhotoPicker(form, alreadySaved = 0) {
+function setupPhotoPicker(form, alreadySaved = 0, initialPhotos = []) {
   const picker = form.querySelector('.photo-picker');
   const input = picker.querySelector('input');
   const count = picker.querySelector('.photo-picker-count');
   const error = picker.querySelector('.photo-picker-error');
   const list = picker.querySelector('.photo-previews');
-  const selected = [];
+  const selected = initialPhotos.map((file) => ({ file, url: URL.createObjectURL(file) }));
   let dragging;
 
   function render() {
@@ -1206,9 +1723,17 @@ function setupPhotoPicker(form, alreadySaved = 0) {
   return () => selected.map(({ file }) => file);
 }
 
-async function uploadPhotos(path, photos) {
+async function uploadPhotos(path, photos, { origin, order } = {}) {
   const data = new FormData();
-  for (const photo of photos) data.append('fotos', photo);
+  if (origin && order?.some(Boolean)) {
+    data.append('origen_id', origin);
+    order.forEach((id, index) => {
+      data.append('orden', id);
+      if (!id) data.append('fotos', photos[index]);
+    });
+  } else {
+    for (const photo of photos) data.append('fotos', photo);
+  }
   await api(path + '/fotos', 'POST', data);
 }
 
@@ -1278,7 +1803,7 @@ function photoManagement(p, open, privatePhotos = false) {
           </figcaption>
         </figure>`).join('')}</div>` : ''}
       ${photos.length < maxListingPhotos ? `<form id="photo-form">
-        <p class="muted"><small>JPG, PNG o WebP de hasta 5 MB cada una.</small></p>
+        <p class="muted"><small>JPG, PNG o WebP de hasta ${maxListingPhotoMB} MB cada una. Se optimizan al subirlas.</small></p>
         ${photoInput()}
         ${submitButton('Agregar fotos')}
       </form>` : ''}
@@ -1810,11 +2335,18 @@ function similarListings(current, listings) {
     .map(({ listing }) => listing);
 }
 
-function setupSimilarCarousel(panel, viewport) {
-  const previous = panel.querySelector('[data-similar-prev]');
-  const next = panel.querySelector('[data-similar-next]');
+function carouselControls(viewportId, label) {
+  return `<div class="carousel-controls" role="group" aria-label="${label}" hidden>
+    <button type="button" data-carousel-prev aria-label="Propiedad anterior" aria-controls="${viewportId}"></button>
+    <button type="button" data-carousel-next aria-label="Propiedad siguiente" aria-controls="${viewportId}"></button>
+  </div>`;
+}
+
+function setupListingCarousel(panel, viewport, cards) {
+  releaseListingCarousel?.();
+  const previous = panel.querySelector('[data-carousel-prev]');
+  const next = panel.querySelector('[data-carousel-next]');
   const controls = previous.parentElement;
-  const cards = viewport.querySelector('.cards');
 
   function updateControls() {
     const end = viewport.scrollWidth - viewport.clientWidth;
@@ -1833,7 +2365,7 @@ function setupSimilarCarousel(panel, viewport) {
   viewport.onscroll = updateControls;
   const observer = new ResizeObserver(updateControls);
   observer.observe(viewport);
-  releaseSimilarCarousel = () => observer.disconnect();
+  releaseListingCarousel = () => observer.disconnect();
   updateControls();
 }
 
@@ -1847,7 +2379,7 @@ async function loadSimilarListings(current, panel) {
     await showListingCards(viewport, listings);
     if (!panel.isConnected) return;
     panel.hidden = false;
-    setupSimilarCarousel(panel, viewport);
+    setupListingCarousel(panel, viewport, viewport.querySelector('.cards'));
   } catch {
     // La ficha sigue disponible si no se pueden cargar las recomendaciones.
   }
@@ -1928,14 +2460,11 @@ async function publication(id, version) {
     <section class="similar-panel" id="publication-similar" aria-labelledby="similar-title" hidden>
       <h2 id="similar-title">Propiedades similares</h2>
       <div class="similar-carousel">
-        <div class="similar-controls" role="group" aria-label="Recorrer recomendaciones" hidden>
-          <button type="button" data-similar-prev aria-label="Propiedad anterior" aria-controls="similar-listings"></button>
-          <button type="button" data-similar-next aria-label="Propiedad siguiente" aria-controls="similar-listings"></button>
-        </div>
+        ${carouselControls('similar-listings', 'Recorrer recomendaciones')}
         <div class="similar-listings" id="similar-listings" tabindex="0" role="group" aria-label="Avisos recomendados"></div>
       </div>
     </section>
-    </div></div>`);
+    </div>${p.whatsapp_url ? '<div class="mobile-contact"><button type="button" class="btn detail-contact">Consultar por WhatsApp</button></div>' : ''}</div>`);
   setupPublicationPhotos(p, path);
   if (comparisonBack) main.querySelector('.back').onclick = (event) => {
     if (!isSameTabClick(event)) return;
@@ -1948,8 +2477,9 @@ async function publication(id, version) {
   loadSimilarListings(p, main.querySelector('#publication-similar'));
   const save = main.querySelector('.detail-utilities [data-favorite]');
   save.onclick = () => toggleFavorite(save);
-  const contactButton = main.querySelector('.detail-contact');
-  if (contactButton) contactButton.onclick = () => openWhatsAppContact(p);
+  for (const button of main.querySelectorAll('.detail-contact')) {
+    button.onclick = () => openWhatsAppContact(p);
+  }
   const descriptionForm = main.querySelector('#description-form');
   if (descriptionForm) submit(descriptionForm, async (data, output) => {
     const description = data.get('descripcion').trim();
@@ -2014,36 +2544,161 @@ function listingStateMenu(p) {
   </span>`;
 }
 
-function listingQuota({ activas, limite }) {
+function listingQuota({ activas, limite, guardadas, limite_guardadas }) {
   const full = limite !== null && activas >= limite;
   return `<section class="panel listing-quota" aria-label="Cupo de avisos">
-    <div><h2>Cupo de avisos activos</h2>
+    <div><h2>Cupo de avisos</h2>
       <p class="muted">${full ? 'Pausá o cerrá un aviso para publicar o reactivar otro.' :
-        'Los avisos pausados o cerrados liberan un lugar.'}</p></div>
-    <div class="listing-quota-use">
-      <strong>${limite === null ? `${number(activas)} · Sin límite` : `${number(activas)} de ${number(limite)}`}</strong>
-      ${limite === null ? '' : `<progress value="${Math.min(activas, limite)}" max="${limite}" aria-label="Cupo utilizado"></progress>`}
+        limite === null ? 'Podés administrar tus avisos desde esta página.' :
+          'Lugares disponibles: ' + number(Math.max(0, limite - activas)) + '.'}</p></div>
+    <div class="listing-quota-meters">
+      <div class="listing-quota-use">
+        <strong>${limite_guardadas === null ? `${number(guardadas)} guardados` : `${number(guardadas)} de ${number(limite_guardadas)} guardados`}</strong>
+        ${limite_guardadas === null ? '' : `<progress value="${Math.min(guardadas, limite_guardadas)}" max="${limite_guardadas}" aria-label="Cupo de avisos guardados"></progress>`}
+        ${limite_guardadas !== null && guardadas >= limite_guardadas ?
+          '<small>Eliminá un aviso guardado para poder publicar otro.</small>' : ''}
+      </div>
+      <div class="listing-quota-use">
+        <strong>${limite === null ? `${number(activas)} activos` : `${number(activas)} de ${number(limite)} activos`}</strong>
+        ${limite === null ? '' : `<progress value="${Math.min(activas, limite)}" max="${limite}" aria-label="Cupo de avisos activos"></progress>`}
+      </div>
     </div>
   </section>`;
 }
 
-async function newListing(version) {
-  if (canPublish()) {
-    const quota = await api('/publicaciones/mis/cupo');
+function listingPlanRequired() {
+  return `<section class="panel teal listing-plan-required">
+    <h2>Activá tu abono para publicar</h2>
+    <p>Cuando confirmemos tu pago, vas a poder publicar y reactivar avisos desde tu cuenta.</p>
+    <a class="btn" href="#planes">Ver planes y pagos</a>
+  </section>`;
+}
+
+async function withDrafts(mode, operation) {
+  const db = await new Promise((resolve, reject) => {
+    const opening = indexedDB.open('alquilometro-borradores', 1);
+    opening.onupgradeneeded = () => {
+      const drafts = opening.result.createObjectStore('avisos', { keyPath: 'id' });
+      drafts.createIndex('owner', 'owner');
+    };
+    opening.onsuccess = () => resolve(opening.result);
+    opening.onerror = () => reject(opening.error);
+  });
+  try {
+    return await new Promise((resolve, reject) => {
+      const transaction = db.transaction('avisos', mode);
+      const request = operation(transaction.objectStore('avisos'));
+      transaction.oncomplete = () => resolve(request.result);
+      transaction.onabort = () => reject(transaction.error);
+    });
+  } finally {
+    db.close();
+  }
+}
+
+async function renderDrafts(output, message = '') {
+  const owner = user.id;
+  try {
+    const drafts = await withDrafts('readonly', (store) => store.index('owner').getAll(owner));
+    if (!output.isConnected || user?.id !== owner) return;
+    result(output, (message ? note(message) : '') + (drafts.length ? `<section class="panel draft-list"><h2>Borradores</h2>
+      <p class="muted">Guardados en este navegador. Podés retomarlos cuando quieras.</p>
+      <ul class="saved-search-list">${drafts.sort((a, b) => b.updated - a.updated).map((draft) => `
+        <li><div><a class="quiet" href="#publicar?borrador=${h(draft.id)}">${h(draft.fields.titulo || 'Aviso sin título')}</a>
+          <small>${h(draft.fields.zona || '')}</small></div>
+          <button type="button" class="quiet draft-remove" data-delete-draft="${h(draft.id)}"
+            aria-label="Eliminar borrador ${h(draft.fields.titulo || 'sin título')}">Eliminar borrador</button>
+        </li>`).join('')}</ul><div data-draft-status></div></section>` : ''));
+    output.onclick = async (event) => {
+      const button = event.target.closest('[data-delete-draft]');
+      const draft = drafts.find((item) => item.id === button?.dataset.deleteDraft);
+      if (!draft || dialog.open) return;
+      const accepted = await confirmAction('¿Eliminar este borrador?',
+        `Se borrarán los datos y las fotos de <strong>${h(draft.fields.titulo || 'este aviso')}</strong> de este navegador.`,
+        'Eliminar borrador', 'draft-delete-confirm');
+      if (!accepted || !output.isConnected || user?.id !== owner) return;
+      button.disabled = true;
+      try {
+        await withDrafts('readwrite', (store) => store.delete(draft.id));
+        if (!output.isConnected || user?.id !== owner) return;
+        await renderDrafts(output, 'Borrador eliminado.');
+        (output.querySelector('a') || output).focus({ preventScroll: true });
+      } catch {
+        const status = output.querySelector('[data-draft-status]');
+        if (status) result(status, note('No pudimos eliminar el borrador. Volvé a intentar.', 'error'));
+      } finally {
+        button.disabled = false;
+      }
+    };
+  } catch {
+    if (output.isConnected) result(output, note('No pudimos consultar los borradores de este navegador.', 'warn'));
+  }
+}
+
+async function duplicateListing(id, owner) {
+  const path = '/publicaciones/mis/' + id;
+  const listing = await api(path);
+  const photos = await Promise.allSettled(listing.fotos.map(async (photo, index) => {
+    const response = await fetch('/api' + path + '/fotos/' + photo.id, {
+      headers: { Authorization: 'Bearer ' + token },
+    });
+    if (!response.ok) throw new Error('No pudimos copiar la foto.');
+    const blob = await response.blob();
+    return {
+      source: photo.id,
+      file: new File([blob], 'Foto ' + (index + 1) + '.' + blob.type.split('/').at(-1), { type: blob.type }),
+    };
+  }));
+  const copied = photos.filter((photo) => photo.status === 'fulfilled').map((photo) => photo.value);
+  return {
+    id: crypto.randomUUID(), owner, updated: Date.now(),
+    fields: { ...listingFormFields(listing), titulo: (listing.titulo + ' (copia)').slice(0, 100) },
+    photos: copied.map((photo) => photo.file),
+    origin: listing.id,
+    photoSources: copied.map((photo) => photo.source),
+    missingPhotos: photos.some((photo) => photo.status === 'rejected'),
+  };
+}
+
+async function newListing(version, params) {
+  if (!canManageListings()) return publish();
+  const owner = user.id;
+  const quota = await api('/publicaciones/mis/cupo');
+  if (version !== routeVersion) return;
+  let draft;
+  const draftId = params.get('borrador');
+  const duplicateId = params.get('duplicar');
+  if (draftId) {
+    draft = await withDrafts('readonly', (store) => store.get(draftId));
     if (version !== routeVersion) return;
-    if (quota.limite !== null && quota.activas >= quota.limite) {
-      result(main, `<div class="wrap content"><h1>Nueva publicación</h1>
-        ${listingQuota(quota)}
-        <a class="btn" href="#mis-publicaciones">Ir a Mis publicaciones</a>
-      </div>`);
+    if (draft?.owner !== owner) {
+      result(main, `<div class="wrap content">${note('No encontramos este borrador en este navegador.', 'warn')}
+        <a class="btn" href="#mis-publicaciones">Volver a Mis publicaciones</a></div>`);
       return;
     }
+  } else if (duplicateId && /^\d+$/.test(duplicateId)) {
+    draft = await duplicateListing(duplicateId, owner);
+    if (version !== routeVersion || user?.id !== owner) return;
+    await withDrafts('readwrite', (store) => store.put(draft));
+    if (version !== routeVersion) return;
+    history.replaceState(history.state, '', '#publicar?borrador=' + draft.id);
   }
-  publish();
+  publish(null, false, { quota, draft });
+}
+
+function publicationSuggestions(p) {
+  const suggestions = [];
+  if (!p.fotos.length) suggestions.push('Foto de portada');
+  if (!p.descripcion) suggestions.push('Descripción');
+  if (!p.whatsapp_url) suggestions.push('WhatsApp de contacto');
+  if (p.expensas_mensuales == null) suggestions.push('Expensas');
+  if (!isSale(p) && p.abl_mensual == null) suggestions.push('ABL');
+  return suggestions.length ? `<p class="listing-suggestions"><strong>Datos para completar</strong>
+    <small>${h(suggestions.join(' · '))}</small></p>` : '';
 }
 
 async function myListings(id, version, fromAdmin = false) {
-  if (!canPublish()) {
+  if (!canManageListings()) {
     result(main, `<div class="wrap content"><h1>Mis publicaciones</h1>
       <div class="panel">${user ? note('Esta cuenta no puede publicar avisos.') :
         loginPrompt('Ingresá con tu cuenta de anunciante para administrar tus avisos.')}</div></div>`);
@@ -2059,11 +2714,25 @@ async function myListings(id, version, fromAdmin = false) {
   if (version !== routeVersion) return;
   result(main, `<div class="wrap content">
     <div class="section-head my-listings-head"><h1>Mis publicaciones</h1>
-      <a class="btn" href="#publicar">Nueva publicación</a>
+      <div class="actions">
+        ${user.rol === 'INMOBILIARIA' ? '<a class="quiet" href="#planes">Planes y pagos</a>' : ''}
+        <a class="btn" href="#publicar">Nueva publicación</a>
+      </div>
     </div>
+    ${quota.requiere_abono ? listingPlanRequired() : ''}
     <div id="listing-quota" aria-live="polite">${listingQuota(quota)}</div>
+    <div id="managed-drafts" tabindex="-1"></div>
+    ${listings.length ? `<form class="panel fields managed-filters" id="managed-filters" aria-label="Filtrar mis publicaciones">
+      ${input('Buscar aviso', 'buscar', 'type="search" placeholder="Título o barrio"')}
+      ${select('Operación', 'operacion', [['','Todas'], ['alquiler','Alquiler'], ['venta','Venta']])}
+      ${select('Estado', 'estado', [['','Todos'], ['activa','Activo'], ['pausada','Pausado'], ['cerrada','Alquilado o vendido']])}
+      ${select('Visibilidad', 'patrocinio', [['','Todos'], ['true','Destacado'], ['false','Normal']])}
+      <button class="quiet" type="reset">Limpiar filtros</button>
+    </form><p id="managed-filter-count" role="status"></p>` : ''}
     ${listings.length ? '<p class="muted listing-metrics-hint">Las métricas son acumuladas. Se cuenta una visita y un clic a WhatsApp por aviso y pestaña. Un clic indica intención de contacto.</p>' : ''}
-    ${listings.length ? `<div class="cards">${listings.map((p) => `<article class="card managed-listing">
+    ${listings.length ? `<div class="cards" id="managed-listings">${listings.map((p) => `<article class="card managed-listing"
+      data-search="${h(p.titulo + ' ' + p.propiedad.zona)}" data-operation="${h(p.operacion)}" data-sponsored="${p.patrocinada}"
+      ${quota.avisos_visibles ? '' : 'data-publicacion-oculta'}>
       <div class="section-head">
         <p class="eyebrow">${isSale(p) ? 'Venta' : 'Alquiler'}</p>
         ${listingStateMenu(p)}
@@ -2075,16 +2744,45 @@ async function myListings(id, version, fromAdmin = false) {
         <div><dt>Visitas al aviso</dt><dd>${number(p.visitas)}</dd></div>
         <div><dt>Clics a WhatsApp</dt><dd>${number(p.clics_whatsapp)}</dd></div>
       </dl>
-      <div class="actions"><a class="quiet" href="#mis-publicaciones/${p.id}">Administrar aviso</a>
-        <a href="#publicacion/${p.id}" data-public-listing ${p.estado === 'activa' ? '' : 'hidden'}>Ver aviso</a>
+      ${publicationSuggestions(p)}
+      <div class="managed-listing-actions">
+        <a class="btn" href="#mis-publicaciones/${p.id}">Administrar aviso</a>
+        <div class="managed-listing-secondary">
+          <a href="#publicar?duplicar=${p.id}">Duplicar como borrador</a>
+          <a href="#publicacion/${p.id}" data-public-listing ${p.estado === 'activa' && quota.avisos_visibles ? '' : 'hidden'}>Ver aviso</a>
+        </div>
       </div>
       <div class="listing-status-message" aria-live="polite"></div>
     </article>`).join('')}</div>` : '<p class="empty">Todavía no tenés avisos publicados.</p>'}
   </div>`);
+  void renderDrafts(main.querySelector('#managed-drafts'));
   const quotaPanel = main.querySelector('#listing-quota');
+  const filtersForm = main.querySelector('#managed-filters');
+  const cards = [...main.querySelectorAll('.managed-listing')];
+  const count = main.querySelector('#managed-filter-count');
+  function applyManagedFilters(values = new FormData(filtersForm)) {
+    const normalize = (text) => text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim();
+    const search = normalize(values.get('buscar') || '');
+    let visible = 0;
+    for (const card of cards) {
+      card.hidden = !normalize(card.dataset.search).includes(search) ||
+        (values.get('operacion') && values.get('operacion') !== card.dataset.operation) ||
+        (values.get('estado') && values.get('estado') !== card.querySelector('.listing-state').dataset.state) ||
+        (values.get('patrocinio') && values.get('patrocinio') !== card.dataset.sponsored);
+      if (!card.hidden) visible++;
+    }
+    count.textContent = visible ? `${number(visible)} de ${number(cards.length)} avisos` : 'No hay avisos con estos filtros.';
+  }
+  if (filtersForm) {
+    filtersForm.oninput = () => applyManagedFilters();
+    filtersForm.onsubmit = (event) => event.preventDefault();
+    filtersForm.onreset = () => applyManagedFilters(new FormData());
+    applyManagedFilters();
+  }
   setupListingStateMenus(main, (previous, estado) => {
     quota.activas += Number(estado === 'activa') - Number(previous === 'activa');
     result(quotaPanel, listingQuota(quota));
+    if (filtersForm) applyManagedFilters();
   });
 }
 
@@ -2104,7 +2802,7 @@ function setupListingStateMenus(container, onChanged) {
         await api('/publicaciones/mis/' + menu.dataset.listingStatus + '/estado', 'PATCH', { estado });
         pill.dataset.state = estado;
         card.querySelector('[data-public-listing]').hidden =
-          estado !== 'activa' || card.hasAttribute('data-anunciante-suspendido');
+          estado !== 'activa' || card.hasAttribute('data-publicacion-oculta');
         onChanged(previous, estado);
       } catch (error) {
         menu.value = previous;
@@ -2121,11 +2819,107 @@ function adminOverview(data) {
   const counts = data.publicaciones_por_estado;
   return `<div class="admin-metrics">
     ${[
-      ['Cuentas', data.cuentas], ['Inmobiliarias', data.inmobiliarias.length],
-      ['Avisos visibles', (counts.activa ?? 0) - data.avisos_ocultos], ['Pausados', counts.pausada ?? 0],
-      ['Alquilados o vendidos', counts.cerrada ?? 0],
-    ].map(([title, value]) => `<div class="panel">${metric(title, number(value))}</div>`).join('')}
+      ['Cuentas', data.cuentas, 'admin-accounts'],
+      ['Inmobiliarias', data.inmobiliarias.length, 'admin-agencies'],
+      ['Avisos visibles', (counts.activa ?? 0) - data.avisos_ocultos, 'admin-publications', 'visible'],
+      ['Pausados', counts.pausada ?? 0, 'admin-publications', 'pausada'],
+      ['Alquilados o vendidos', counts.cerrada ?? 0, 'admin-publications', 'cerrada'],
+    ].map(([title, value, section, status = '']) => `<button class="panel admin-metric-link" type="button"
+      data-admin-section="${section}" data-status="${status}" aria-controls="${section}">
+      <span class="metric"><small>${title}</small><strong class="value">${number(value)}</strong></span>
+      <span class="admin-metric-arrow" aria-hidden="true">↗</span>
+    </button>`).join('')}
   </div>`;
+}
+
+function adminAccountList({ cuentas, total, por_pagina }, page) {
+  if (!cuentas.length) return '<p class="empty">No hay cuentas con estos filtros.</p>';
+  return `<div class="table-wrap admin-table"><table>
+    <thead><tr><th scope="col">Nombre</th><th scope="col">Correo</th>
+      <th scope="col">Tipo de cuenta</th><th scope="col">Estado</th></tr></thead>
+    <tbody>${cuentas.map((account) => `<tr>
+      <td><strong>${h(account.nombre)}</strong></td><td>${h(account.email)}</td>
+      <td>${h(roleNames[account.rol])}</td>
+      <td>${account.habilitada ? 'Habilitada' : 'Suspendida'}</td>
+    </tr>`).join('')}</tbody>
+  </table></div>${adminPagination(total, por_pagina, page, 'cuentas')}`;
+}
+
+function adminPagination(total, pageSize, page, noun) {
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  return `<div class="admin-pagination actions">
+    <small>${number(total)} ${noun} · Página ${page} de ${pages}</small>
+    <button class="quiet" type="button" data-page="${page - 1}" ${page === 1 ? 'disabled' : ''}>Anterior</button>
+    <button class="quiet" type="button" data-page="${page + 1}" ${page >= pages ? 'disabled' : ''}>Siguiente</button>
+  </div>`;
+}
+
+async function showPaymentAlerts(version) {
+  let avisos;
+  let resumen;
+  try {
+    [avisos, resumen] = await Promise.all([api('/admin/patrocinios'), api('/admin/resumen')]);
+  } catch {
+    return;
+  }
+  if (version !== routeVersion || dialog.open || user?.rol !== 'ADMIN') return;
+  const vencimientos = avisos.filter((aviso) => aviso.aviso_vencimiento).length;
+  const pendientes = avisos.filter((aviso) => aviso.pendiente).length;
+  const abonos = resumen.inmobiliarias.filter((agencia) => agencia.abono_referencia_pendiente).length;
+  const demorados = resumen.inmobiliarias.filter((agencia) => agencia.abono_revision_demorada).length;
+  if (!vencimientos && !pendientes && !abonos) return;
+  result(dialogBody, `<h2 id="dialog-title">Pagos y destacados por revisar</h2>
+    ${abonos ? `<p>Pagos de abono por confirmar: <strong>${number(abonos)}</strong>.</p>` : ''}
+    ${demorados ? note(`${number(demorados)} abonos llevan dos días o más en revisión.`, 'warn') : ''}
+    ${pendientes ? `<p>Pagos de avisos destacados por confirmar: <strong>${number(pendientes)}</strong>.</p>` : ''}
+    ${vencimientos ? `<p>Destacados que vencen hoy o ya vencieron: <strong>${number(vencimientos)}</strong>.</p>` : ''}
+    <a class="btn" href="#admin">Ir al panel</a>`);
+  dialogBody.querySelector('a').onclick = () => {
+    dialog.close();
+    main.querySelector(abonos ? '#admin-agencies' : '#admin-sponsorships')?.scrollIntoView({block: 'start'});
+  };
+  dialog.showModal();
+}
+
+function adminSponsorships(avisos) {
+  const pendientes = avisos.filter((aviso) => aviso.pendiente);
+  const conPeriodo = avisos.filter((aviso) => aviso.hasta);
+  if (!avisos.length) return '<p class="muted">Todavía no hay pagos informados ni destacados con fecha.</p>';
+  const descripcion = (aviso) => `<strong>#${aviso.id} · ${h(aviso.titulo)}</strong><small>${h(aviso.inmobiliaria)}</small>`;
+  return `
+    ${pendientes.length ? `<h3>Pagos por confirmar</h3><div class="admin-sponsorship-list">
+      ${pendientes.map((aviso) => `<div class="admin-sponsorship-row">
+        <div>${descripcion(aviso)}<small>Operación ${h(aviso.referencia)}</small></div>
+        <div class="actions">
+          <button class="btn" type="button" data-confirm-sponsorship="${aviso.id}">Confirmar pago</button>
+          <button class="quiet" type="button" data-reject-sponsorship="${aviso.id}">Pedir corrección</button>
+        </div>
+      </div>`).join('')}</div>` : ''}
+    ${conPeriodo.length ? `<h3>Fechas y vencimientos</h3><div class="admin-sponsorship-list">
+      ${conPeriodo.map((aviso) => `<div class="admin-sponsorship-row">
+        <div>${descripcion(aviso)}<small>Del ${h(date(aviso.desde))} al ${h(date(aviso.hasta))}</small></div>
+        <div class="actions">
+          ${aviso.aviso_vencimiento ? `<span class="agency-status sponsorship-due">${aviso.vencido ? 'Vencido' : 'Vence hoy'}</span>
+            <button class="quiet" type="button" data-sponsorship-seen="${aviso.id}">Marcar como visto</button>` : ''}
+          ${!aviso.vencido ? `<button class="quiet sponsorship-stop" type="button"
+            data-sponsorship-stop="${aviso.id}">Quitar destacado</button>` : ''}
+        </div>
+      </div>`).join('')}</div>` : ''}`;
+}
+
+function fechaActualArgentina() {
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'America/Argentina/Buenos_Aires',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(new Date()).split('/').reverse().join('-');
+}
+
+function abonoHasta(fechaPago) {
+  const fecha = new Date(fechaPago + 'T00:00:00Z');
+  const diaPago = fecha.getUTCDate();
+  fecha.setUTCMonth(fecha.getUTCMonth() + 2, 0);
+  fecha.setUTCDate(Math.min(diaPago, fecha.getUTCDate()));
+  return fecha.toISOString().slice(0, 10);
 }
 
 function adminAgencyList(agencies) {
@@ -2133,13 +2927,26 @@ function adminAgencyList(agencies) {
   return `<div class="table-wrap admin-table">
     <table>
       <thead><tr><th scope="col">Inmobiliaria</th><th scope="col">Estado</th>
-        <th scope="col">Cupo</th><th scope="col">Acciones</th></tr></thead>
+        <th scope="col">Cupo</th><th scope="col">Abono</th><th scope="col">Acciones</th></tr></thead>
       <tbody>${agencies.map((agency) => `<tr>
         <td><strong>${h(agency.nombre)}</strong><small>${h(agency.email)}</small></td>
         <td><span class="agency-status ${agency.habilitada ? '' : 'suspended'}">
           ${agency.habilitada ? 'Habilitada' : 'Suspendida'}
         </span></td>
         <td>${number(agency.activas)} de ${number(agency.limite)}</td>
+        <td>${agency.abono_pagado_el ? `<small>Pagó el ${h(date(agency.abono_pagado_el))}</small>` : ''}
+          ${agency.abono_vigente_hasta ? `<small>Hasta el ${h(date(agency.abono_vigente_hasta))}</small>` : ''}
+          ${agency.abono_referencia_pendiente ? `<span class="agency-status payment-pending">${agency.abono_revision_demorada ? 'Revisión demorada' : 'Pago por confirmar'}</span>
+            <small>Operación ${h(agency.abono_referencia_pendiente)}</small>` :
+            agency.abono_vigente_hasta ? '' : '<small>Sin pago registrado</small>'}
+          <button class="quiet" type="button" data-agency-abono="${agency.id}" data-name="${h(agency.nombre)}"
+            data-until="${h(agency.abono_vigente_hasta)}"
+            data-reference="${h(agency.abono_referencia_pendiente)}">
+            ${agency.abono_referencia_pendiente ? 'Confirmar pago' : 'Editar abono'}
+          </button>
+          ${agency.abono_referencia_pendiente ? `<button class="quiet" type="button"
+            data-reject-abono="${agency.id}" data-reference="${h(agency.abono_referencia_pendiente)}">Pedir corrección</button>` : ''}
+          <button class="quiet" type="button" data-agency-history="${agency.id}" data-name="${h(agency.nombre)}">Historial</button></td>
         <td><button class="quiet" type="button" data-agency="${agency.id}"
           data-enable="${!agency.habilitada}" data-name="${h(agency.nombre)}"
           aria-label="${agency.habilitada ? 'Suspender' : 'Reactivar'} ${h(agency.nombre)}">
@@ -2150,40 +2957,60 @@ function adminAgencyList(agencies) {
   </div>`;
 }
 
-function confirmAgencySuspension(name) {
-  result(dialogBody, `<h2 id="dialog-title">Suspender inmobiliaria</h2>
-    <p><strong>${h(name)}</strong> perderá el acceso. Sus avisos quedarán ocultos hasta que reactives la cuenta.</p>
+function confirmAction(title, description, action, buttonClass = '') {
+  result(dialogBody, `<h2 id="dialog-title">${h(title)}</h2>
+    <p>${description}</p>
     <form method="dialog">
       <div class="actions">
         <button type="submit" class="quiet" value="cancelar" autofocus>Cancelar</button>
-        <button type="submit" class="btn" value="suspender">Suspender</button>
+        <button type="submit" class="btn ${h(buttonClass)}" value="confirmar">${h(action)}</button>
       </div>
     </form>`);
   dialog.returnValue = '';
   const decision = new Promise((resolve) => {
-    dialog.addEventListener('close', () => resolve(dialog.returnValue === 'suspender'), { once: true });
+    dialog.addEventListener('close', () => resolve(dialog.returnValue === 'confirmar'), { once: true });
   });
   dialog.showModal();
   return decision;
 }
 
+function pedirCorreccionPago(path, referencia, alGuardar) {
+  result(dialogBody, `<h2 id="dialog-title">Pedir corrección del pago</h2>
+    <p>La inmobiliaria verá el motivo en su historial y podrá volver a informar el pago.</p>
+    <form><label>Motivo de la corrección<textarea name="motivo" required maxlength="500"></textarea></label>
+      ${submitButton('Pedir corrección')}
+    </form>`);
+  const form = dialogBody.querySelector('form');
+  submit(form, async (data) => {
+    await api(path, 'PATCH', { referencia, motivo: data.get('motivo').trim() });
+    if (form.isConnected && dialog.open) dialog.close();
+    await alGuardar();
+  });
+  dialog.showModal();
+}
+
+function confirmAgencySuspension(name) {
+  return confirmAction('Suspender inmobiliaria',
+    `<strong>${h(name)}</strong> perderá el acceso. Sus avisos quedarán ocultos hasta que reactives la cuenta.`,
+    'Suspender');
+}
+
 function adminResults({ avisos, total, por_pagina }, page) {
-  const pages = Math.max(1, Math.ceil(total / por_pagina));
   if (!avisos.length) return '<p class="empty">No hay avisos con estos filtros.</p>';
   return `<div class="table-wrap admin-table">
     <table>
-      <thead><tr>${['Aviso', 'Anunciante', 'Precio', 'Estado', 'Patrocinio', 'Visitas', 'Clics WhatsApp', 'Acciones']
+      <thead><tr>${['Aviso', 'Anunciante', 'Precio', 'Estado', 'Visibilidad', 'Visitas', 'Clics WhatsApp', 'Acciones']
         .map((title) => `<th scope="col">${title}</th>`).join('')}</tr></thead>
-      <tbody>${avisos.map((p) => `<tr ${p.anunciante_habilitado ? '' : 'data-anunciante-suspendido'}>
+      <tbody>${avisos.map((p) => `<tr ${p.anunciante_visible ? '' : 'data-publicacion-oculta'}>
         <td><strong>${h(p.titulo)}</strong><small>${h(p.zona)} · ${isSale(p) ? 'Venta' : 'Alquiler'}</small></td>
-        <td>${h(p.anunciante)}${p.anunciante_habilitado ? '' : '<small>Cuenta suspendida</small>'}</td>
+        <td>${h(p.anunciante)}${p.anunciante_visible ? '' : `<small>${p.anunciante_habilitado ? 'Abono vencido' : 'Cuenta suspendida'}</small>`}</td>
         <td class="money">${h(money(p.precio))}</td>
         <td>${listingStateMenu(p)}<div class="listing-status-message" aria-live="polite"></div></td>
         <td>
           <span class="listing-state listing-sponsorship" data-sponsored="${p.patrocinada}">
-            <select data-listing-sponsorship="${p.id}" aria-label="Patrocinio de ${h(p.titulo)}">
+            <select data-listing-sponsorship="${p.id}" aria-label="Visibilidad de ${h(p.titulo)}">
               <option value="false" ${p.patrocinada ? '' : 'selected'}>Normal</option>
-              <option value="true" ${p.patrocinada ? 'selected' : ''}>Patrocinado</option>
+              <option value="true" ${p.patrocinada ? 'selected' : ''}>Destacado</option>
             </select>
           </span>
           <div class="sponsorship-message" role="status"></div>
@@ -2191,16 +3018,12 @@ function adminResults({ avisos, total, por_pagina }, page) {
         <td>${number(p.visitas)}</td><td>${number(p.clics_whatsapp)}</td>
         <td><div class="admin-row-actions">
           <a class="quiet" href="#mis-publicaciones/${p.id}?origen=admin">Editar aviso</a>
-          <a href="#publicacion/${p.id}" data-public-listing ${p.estado === 'activa' && p.anunciante_habilitado ? '' : 'hidden'}>Ver aviso</a>
+          <a href="#publicacion/${p.id}" data-public-listing ${p.estado === 'activa' && p.anunciante_visible ? '' : 'hidden'}>Ver aviso</a>
         </div></td>
       </tr>`).join('')}</tbody>
     </table>
   </div>
-  <div class="admin-pagination actions">
-    <small>${number(total)} avisos · Página ${page} de ${pages}</small>
-    <button class="quiet" type="button" data-page="${page - 1}" ${page === 1 ? 'disabled' : ''}>Anterior</button>
-    <button class="quiet" type="button" data-page="${page + 1}" ${page >= pages ? 'disabled' : ''}>Siguiente</button>
-  </div>`;
+  ${adminPagination(total, por_pagina, page, 'avisos')}`;
 }
 
 function setupSponsorshipMenus(container) {
@@ -2235,16 +3058,28 @@ async function adminPage(version) {
         loginPrompt('Ingresá con tu cuenta administradora.')}</div></div>`);
     return;
   }
-  const [overview, listings] = await Promise.all([
-    api('/admin/resumen'), api('/admin/publicaciones'),
+  const [overview, listings, patrocinios] = await Promise.all([
+    api('/admin/resumen'), api('/admin/publicaciones'), api('/admin/patrocinios'),
   ]);
   if (version !== routeVersion) return;
   result(main, `<div class="wrap content admin-page">
     <h1>Panel de administración</h1>
     <div id="admin-overview">${adminOverview(overview)}</div>
     <div id="admin-message" aria-live="polite"></div>
-    <section class="panel admin-agencies"><h2>Inmobiliarias</h2>
-      <details class="admin-agency-create"><summary>Dar de alta inmobiliaria</summary>
+    <section class="panel admin-sponsorships" id="admin-sponsorships">
+      <h2>Destacados</h2>
+      <div id="admin-sponsorship-message" aria-live="polite"></div>
+      <div id="admin-sponsorship-list">${adminSponsorships(patrocinios)}</div>
+    </section>
+    <section class="panel admin-agencies" id="admin-agencies" tabindex="-1" aria-labelledby="admin-agencies-title"><h2 id="admin-agencies-title">Inmobiliarias</h2>
+      <details class="admin-agency-create">
+        <summary>
+          <span class="admin-agency-icon" aria-hidden="true"></span>
+          <span class="admin-agency-label">
+            <strong>Dar de alta inmobiliaria</strong>
+            <small>Configurá su correo de acceso y contraseña inicial.</small>
+          </span>
+        </summary>
         <form class="fields" id="admin-agency-form" autocomplete="off">
           ${input('Nombre de la inmobiliaria', 'nombre', 'required maxlength="100" autocomplete="off"')}
           ${input('Correo de acceso', 'email', 'type="email" required maxlength="255" autocomplete="off"')}
@@ -2258,14 +3093,23 @@ async function adminPage(version) {
       <div id="admin-agency-message" aria-live="polite"></div>
       <div id="admin-agency-list">${adminAgencyList(overview.inmobiliarias)}</div>
     </section>
-    <section class="panel"><h2>Publicaciones</h2>
+    <section class="panel" id="admin-publications" tabindex="-1" aria-labelledby="admin-publications-title"><h2 id="admin-publications-title">Publicaciones</h2>
       <form class="fields admin-filters" id="admin-filters">
         ${input('Buscar aviso', 'buscar', 'type="search" maxlength="100" placeholder="Título, barrio o anunciante"')}
-        ${select('Estado', 'estado', [['', 'Todos'], ['activa', 'Activa'], ['pausada', 'Pausada'], ['cerrada', 'Alquilada o vendida']])}
+        ${select('Estado', 'estado', [['', 'Todos'], ['visible', 'Visible'], ['activa', 'Activa'], ['pausada', 'Pausada'], ['cerrada', 'Alquilada o vendida']])}
         ${select('Operación', 'operacion', [['', 'Todas'], ['alquiler', 'Alquiler'], ['venta', 'Venta']])}
         <div class="actions"><button type="submit" class="btn">Aplicar filtros</button></div>
       </form>
       <div id="admin-results"></div>
+    </section>
+    <section class="panel admin-accounts" id="admin-accounts" tabindex="-1" aria-labelledby="admin-accounts-title">
+      <h2 id="admin-accounts-title">Cuentas</h2>
+      <form class="fields admin-filters" id="admin-account-filters">
+        ${select('Tipo de cuenta', 'rol', [['', 'Todos'], ...Object.entries(roleNames)])}
+        ${select('Estado de la cuenta', 'habilitada', [['', 'Todos'], ['true', 'Habilitada'], ['false', 'Suspendida']])}
+        <button class="quiet" type="reset">Limpiar filtros</button>
+      </form>
+      <div id="admin-account-list" aria-live="polite"></div>
     </section>
   </div>`);
   const form = main.querySelector('#admin-filters');
@@ -2275,9 +3119,150 @@ async function adminPage(version) {
   const agencyList = main.querySelector('#admin-agency-list');
   const agencyMessage = main.querySelector('#admin-agency-message');
   const agencyForm = main.querySelector('#admin-agency-form');
+  const sponsorList = main.querySelector('#admin-sponsorship-list');
+  const sponsorMessage = main.querySelector('#admin-sponsorship-message');
+  let sponsorRows = patrocinios;
   let request = 0;
   let overviewRequest = 0;
   let applied = new URLSearchParams();
+  const accountList = main.querySelector('#admin-account-list');
+  const accountForm = main.querySelector('#admin-account-filters');
+  let accountPage = 1;
+  let accountRequest = 0;
+
+  async function loadAccounts(page = 1, params = query(new FormData(accountForm))) {
+    const revision = ++accountRequest;
+    params.set('pagina', page);
+    accountList.setAttribute('aria-busy', 'true');
+    try {
+      const accounts = await api('/admin/cuentas?' + params);
+      if (version !== routeVersion || revision !== accountRequest) return;
+      const pages = Math.max(1, Math.ceil(accounts.total / accounts.por_pagina));
+      if (page > pages) return loadAccounts(pages, params);
+      accountPage = page;
+      result(accountList, adminAccountList(accounts, page));
+    } catch (error) {
+      if (version === routeVersion && revision === accountRequest) {
+        result(accountList, note(error.message, 'error'));
+      }
+    } finally {
+      if (revision === accountRequest) accountList.removeAttribute('aria-busy');
+    }
+  }
+  accountForm.onchange = () => void loadAccounts();
+  accountForm.onreset = () => void loadAccounts(1, new URLSearchParams());
+  accountList.onclick = (event) => {
+    const button = event.target.closest('[data-page]');
+    if (button) void loadAccounts(Number(button.dataset.page));
+  };
+  result(accountList, '<p role="status">Cargando cuentas…</p>');
+  void loadAccounts();
+
+  overviewPanel.onclick = (event) => {
+    const button = event.target.closest('[data-admin-section]');
+    if (!button) return;
+    const section = document.getElementById(button.dataset.adminSection);
+    section.hidden = false;
+    section.focus({ preventScroll: true });
+    section.scrollIntoView({
+      behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth',
+      block: 'start',
+    });
+    if (button.dataset.status) {
+      form.reset();
+      form.elements.estado.value = button.dataset.status;
+      form.requestSubmit();
+    }
+  };
+
+  async function updateSponsorships() {
+    sponsorRows = await api('/admin/patrocinios');
+    if (version === routeVersion) result(sponsorList, adminSponsorships(sponsorRows));
+  }
+  sponsorList.onclick = async (event) => {
+    const rechazar = event.target.closest('[data-reject-sponsorship]');
+    if (rechazar) {
+      const aviso = sponsorRows.find((row) => row.id === Number(rechazar.dataset.rejectSponsorship));
+      pedirCorreccionPago('/admin/patrocinios/' + aviso.id + '/rechazar', aviso.referencia, async () => {
+        await updateSponsorships();
+        result(sponsorMessage, note('Corrección solicitada.'));
+      });
+      return;
+    }
+    const confirm = event.target.closest('[data-confirm-sponsorship]');
+    if (confirm) {
+      const aviso = sponsorRows.find((row) => row.id === Number(confirm.dataset.confirmSponsorship));
+      const hoy = fechaActualArgentina();
+      const renovar = aviso.hasta && aviso.hasta >= hoy;
+      result(dialogBody, `<h2 id="dialog-title">Confirmar pago del destacado</h2>
+        <p><strong>${h(aviso.titulo)}</strong> · ${h(aviso.inmobiliaria)}</p>
+        <p>Verificá la operación ${h(aviso.referencia)} antes de confirmar el pago.</p>
+        <form id="confirm-sponsor-form">
+          ${camposConciliacion(aviso.referencia)}
+          ${input('Fecha de acreditación', 'pagado_el', `type="date" required max="${h(hoy)}" value="${h(hoy)}"`)}
+          ${renovar ? '<p class="muted">Los 30 días nuevos se suman al período ya pago.</p>' :
+            input('Fecha de inicio', 'desde', 'type="date" required max="9999-12-02"')}
+          <p id="sponsor-end-preview" class="notice" role="status">Elegí la fecha de inicio para calcular el vencimiento.</p>
+          ${submitButton('Confirmar y guardar')}
+        </form>`);
+      const form = dialogBody.querySelector('#confirm-sponsor-form');
+      const desde = form.elements.desde;
+      const preview = form.querySelector('#sponsor-end-preview');
+      const updatePreview = () => {
+        if (!renovar && (!desde.value || !desde.validity.valid)) {
+          preview.textContent = 'Elegí la fecha de inicio para calcular el vencimiento.';
+          return;
+        }
+        const fin = new Date((renovar ? aviso.hasta : desde.value) + 'T00:00:00Z');
+        fin.setUTCDate(fin.getUTCDate() + aviso.duracion_dias - (renovar ? 0 : 1));
+        preview.textContent = 'Vigente hasta el ' + date(fin.toISOString().slice(0, 10));
+      };
+      if (desde) {
+        desde.value = hoy;
+        desde.oninput = updatePreview;
+      }
+      updatePreview();
+      submit(form, async (data) => {
+        await api('/admin/patrocinios/' + aviso.id + '/confirmar', 'PATCH', {
+          desde: data.get('desde') || hoy,
+          referencia: aviso.referencia,
+          pagado_el: data.get('pagado_el'),
+          conciliacion: datosConciliacion(data),
+        });
+        if (form.isConnected && dialog.open) dialog.close();
+        result(sponsorMessage, note('Destacado confirmado.'));
+        await updateSponsorships();
+        await loadResults(1);
+      });
+      dialog.showModal();
+      return;
+    }
+    const action = event.target.closest('[data-sponsorship-seen], [data-sponsorship-stop]');
+    if (!action || action.disabled) return;
+    const stop = action.dataset.sponsorshipStop;
+    if (stop) {
+      const aviso = sponsorRows.find((row) => row.id === Number(stop));
+      const aceptar = await confirmAction('Quitar destacado',
+        `<strong>${h(aviso.titulo)}</strong> volverá a su visibilidad habitual de inmediato.`,
+        'Quitar destacado');
+      if (!aceptar || !action.isConnected) return;
+    }
+    action.disabled = true;
+    try {
+      if (stop) {
+        await api('/admin/publicaciones/' + stop + '/patrocinio', 'PATCH', { patrocinada: false });
+      } else {
+        await api('/admin/patrocinios/' + action.dataset.sponsorshipSeen + '/vencimiento-visto', 'PATCH');
+      }
+      await updateSponsorships();
+      if (stop) await loadResults(1);
+      result(sponsorMessage, note(stop ? 'Aviso destacado desactivado.' : 'Vencimiento marcado como visto.'));
+    } catch (error) {
+      result(sponsorMessage, note(error.message, 'error'));
+    } finally {
+      action.disabled = false;
+    }
+  };
 
   async function updateOverview(agencyId) {
     const revision = ++overviewRequest;
@@ -2286,6 +3271,7 @@ async function adminPage(version) {
       if (version !== routeVersion || revision !== overviewRequest) return;
       result(overviewPanel, adminOverview(overview));
       result(agencyList, adminAgencyList(overview.inmobiliarias));
+      void loadAccounts(accountPage);
       if (agencyId) agencyList.querySelector(`[data-agency="${agencyId}"]`)?.focus({ preventScroll: true });
     } catch (error) {
       if (version === routeVersion && revision === overviewRequest) result(message, note(error.message, 'error'));
@@ -2332,6 +3318,69 @@ async function adminPage(version) {
     await updateOverview();
   });
   agencyList.onclick = async (event) => {
+    const rechazar = event.target.closest('[data-reject-abono]');
+    if (rechazar) {
+      pedirCorreccionPago('/admin/inmobiliarias/' + rechazar.dataset.rejectAbono + '/abono/rechazar',
+        rechazar.dataset.reference, async () => {
+          await updateOverview();
+          result(agencyMessage, note('Corrección solicitada.'));
+        });
+      return;
+    }
+    const historial = event.target.closest('[data-agency-history]');
+    if (historial) {
+      result(dialogBody, `<h2 id="dialog-title">Pagos de ${h(historial.dataset.name)}</h2><div id="agency-payment-history" role="status">Cargando…</div>`);
+      const output = dialogBody.querySelector('#agency-payment-history');
+      dialog.showModal();
+      try {
+        const pagos = await api('/admin/inmobiliarias/' + historial.dataset.agencyHistory + '/pagos');
+        if (output.isConnected && dialog.open) result(output, historialPagos(pagos));
+      } catch (error) {
+        if (output.isConnected && dialog.open) result(output, note(error.message, 'error'));
+      }
+      return;
+    }
+    const abono = event.target.closest('[data-agency-abono]');
+    if (abono) {
+      const fechaPago = fechaActualArgentina();
+      result(dialogBody, `<h2 id="dialog-title">Abono de ${h(abono.dataset.name)}</h2>
+        ${abono.dataset.reference ? `<p>Verificá la operación <strong>${h(abono.dataset.reference)}</strong> antes de confirmar.</p>` : ''}
+        <p>El abono dura un mes calendario desde la fecha de pago.</p>
+        <form id="admin-abono-form">
+          ${abono.dataset.reference ? camposConciliacion(abono.dataset.reference) : ''}
+          ${input('Fecha de pago', 'pagado_el', `type="date" required min="0001-01-01" max="9999-11-30" value="${h(fechaPago)}"`)}
+          <p class="notice" id="abono-preview" role="status"></p>
+          <div class="actions">
+            <button class="btn" type="submit">${abono.dataset.reference ? 'Confirmar pago' : 'Guardar abono'}</button>
+            ${abono.dataset.until ? '<button class="quiet" type="submit" value="quitar" formnovalidate>Quitar vigencia</button>' : ''}
+          </div>
+          ${abono.dataset.until ? '<small>Quitar la vigencia oculta los avisos y conserva el plazo de eliminación si ya estaba en curso.</small>' : ''}
+          <div data-output aria-live="polite"></div>
+        </form>`);
+      const abonoForm = dialogBody.querySelector('#admin-abono-form');
+      const pago = abonoForm.elements.pagado_el;
+      const preview = abonoForm.querySelector('#abono-preview');
+      const updatePreview = () => {
+        const periodo = abono.dataset.reference && abono.dataset.until > pago.value
+          ? abono.dataset.until : pago.value;
+        const hasta = pago.value && pago.validity.valid ? abonoHasta(periodo) : abono.dataset.until;
+        preview.textContent = hasta ? 'Vigente hasta el ' + date(hasta) : 'Elegí la fecha de pago para calcular el vencimiento.';
+      };
+      pago.oninput = updatePreview;
+      updatePreview();
+      submit(abonoForm, async (data, _output, action) => {
+        const quitar = action?.value === 'quitar';
+        await api('/admin/inmobiliarias/' + abono.dataset.agencyAbono + '/abono', 'PATCH',
+          { pagado_el: quitar ? null : data.get('pagado_el'),
+            referencia: quitar ? null : (abono.dataset.reference || null),
+            conciliacion: !quitar && abono.dataset.reference ? datosConciliacion(data) : null });
+        if (abonoForm.isConnected && dialog.open) dialog.close();
+        result(agencyMessage, note('Vigencia del abono actualizada.'));
+        await updateOverview();
+      });
+      dialog.showModal();
+      return;
+    }
     const button = event.target.closest('[data-agency]');
     if (!button || button.disabled) return;
     const habilitada = button.dataset.enable === 'true';
@@ -2356,23 +3405,46 @@ async function adminPage(version) {
 function listingAvailability(p) {
   return `<section class="panel managed-listing-settings"><h2>Disponibilidad</h2>
     ${p.publicador_habilitado ? '' : note('La inmobiliaria está suspendida. El aviso se mantiene oculto.', 'warn')}
+    ${p.publicador_habilitado && !p.publicador_avisos_visibles ? note('El abono venció. El aviso se mantiene oculto hasta que se confirme la renovación.', 'warn') : ''}
     <form id="managed-state-form">
       ${select('Estado del aviso', 'estado', Object.entries(listingStates(p)))}
       <p class="muted"><small>Solo los avisos activos aparecen en la búsqueda y se pueden abrir desde un enlace público.</small></p>
       ${submitButton('Guardar estado')}
     </form>
+    <div class="listing-delete-section">
+      <button type="button" class="quiet draft-remove" id="delete-managed-listing">Eliminar aviso</button>
+      <div id="delete-managed-status" aria-live="polite"></div>
+    </div>
   </section>`;
 }
 
-function setupListingManagement(p) {
+function setupListingManagement(p, backLink) {
   const path = '/publicaciones/mis/' + p.id;
   const stateForm = main.querySelector('#managed-state-form');
   const publicLink = main.querySelector('#managed-public-link');
+  const remove = main.querySelector('#delete-managed-listing');
+  remove.onclick = async () => {
+    if (dialog.open) return;
+    const accepted = await confirmAction('¿Eliminar este aviso?',
+      `Se borrará <strong>${h(p.titulo)}</strong>, se liberará su cupo y se eliminarán del servidor las fotos que solo usa este aviso. Las fotos compartidas seguirán disponibles en los otros avisos.`,
+      'Eliminar aviso', 'draft-delete-confirm');
+    if (!accepted || !remove.isConnected) return;
+    remove.disabled = true;
+    try {
+      await api('/publicaciones/' + p.id, 'DELETE');
+      if (remove.isConnected) location.hash = backLink;
+    } catch (error) {
+      const status = main.querySelector('#delete-managed-status');
+      if (remove.isConnected && status) result(status, note(error.message, 'error'));
+    } finally {
+      remove.disabled = false;
+    }
+  };
   stateForm.elements.estado.value = p.estado;
   submit(stateForm, async (data, output) => {
     const estado = data.get('estado');
     await api(path + '/estado', 'PATCH', { estado });
-    publicLink.hidden = estado !== 'activa' || !p.publicador_habilitado;
+    publicLink.hidden = estado !== 'activa' || !p.publicador_avisos_visibles;
     result(output, note('Estado actualizado.'));
   });
 
@@ -2401,9 +3473,9 @@ function listingCostFields(keys) {
   )).join('');
 }
 
-function fillListingForm(form, p) {
+function listingFormFields(p) {
   const price = askingPrice(p);
-  const fields = {
+  return {
     ...p.propiedad,
     titulo: p.titulo,
     operacion: p.operacion,
@@ -2414,20 +3486,51 @@ function fillListingForm(form, p) {
     tipo_ajuste: p.tipo_ajuste,
     tasa_ajuste: p.tasa_ajuste,
     serie_codigo: p.serie_codigo,
+    whatsapp: p.whatsapp,
+    descripcion: p.descripcion,
     ...Object.fromEntries(Object.keys(listingCostLabels).map((key) => [key, p[key]?.monto])),
   };
+}
+
+function fillListingForm(form, fields) {
   for (const [name, value] of Object.entries(fields)) {
     const control = form.elements.namedItem(name);
     if (!control || value == null) continue;
     if (control.tagName === 'SELECT' && !Array.from(control.options).some((item) => item.value === String(value))) {
       control.add(new Option(value, value));
     }
-    control.value = value;
+    if (control.type === 'checkbox') control.checked = value === true || value === 'on';
+    else control.value = value;
   }
 }
 
-function publish(listing = null, fromAdmin = false) {
-  if (!canPublish()) {
+function previewDraft(form, photos) {
+  const fields = form.elements;
+  const cover = photos[0] ? URL.createObjectURL(photos[0]) : null;
+  const price = fields.precio_publicado.value;
+  const details = [
+    fields.zona.value,
+    fields.tipo.selectedOptions[0]?.textContent,
+    !fields.ambientes.disabled && roomLabel(Number(fields.ambientes.value)),
+    fields.metros_cuadrados.value && number(fields.metros_cuadrados.value) + ' m²',
+  ].filter(Boolean);
+  result(dialogBody, `<div class="draft-preview"><h2 id="dialog-title">Vista previa del aviso</h2>
+    <article class="card">
+      ${cover ? `<img class="draft-cover" src="${h(cover)}" alt="Foto de portada">
+        <small>${photos.length} ${photos.length === 1 ? 'foto' : 'fotos'}</small>` : '<p class="muted">Sin foto de portada</p>'}
+      <p class="eyebrow">${fields.operacion.value === 'venta' ? 'En venta' : 'En alquiler'}</p>
+      <h3>${h(fields.titulo.value.trim() || 'Aviso sin título')}</h3>
+      <p class="muted">${h(details.join(' · '))}</p>
+      <p class="money">${price ? h(money({ monto: price, moneda: fields.moneda.value })) : 'Precio por completar'}</p>
+      ${fields.descripcion.value ? `<p class="description-copy">${h(fields.descripcion.value)}</p>` : ''}
+    </article><button class="quiet" type="button">Seguir editando</button></div>`);
+  dialogBody.querySelector('.draft-preview button').onclick = () => dialog.close();
+  if (cover) dialog.addEventListener('close', () => URL.revokeObjectURL(cover), { once: true });
+  dialog.showModal();
+}
+
+function publish(listing = null, fromAdmin = false, { quota, draft } = {}) {
+  if (!canManageListings()) {
     result(main, `<div class="wrap content"><h1>Nueva publicación</h1><div class="panel">
       ${user ? '<p>Esta operación está reservada a cuentas inmobiliarias y de administración.</p>' :
         loginPrompt('Ingresá con una cuenta inmobiliaria para publicar.')}
@@ -2437,17 +3540,24 @@ function publish(listing = null, fromAdmin = false) {
 
   const expensesOnlyForRent = Object.keys(listingCostLabels).filter((key) => !saleExpenseKeys.includes(key));
   const canSponsor = user?.rol === 'ADMIN';
-  const backLink = fromAdmin ? '#admin' : listing ? '#mis-publicaciones' : '#buscar';
+  const backLink = fromAdmin ? '#admin' : '#mis-publicaciones';
+  const noSpace = quota && (
+    (quota.limite !== null && quota.activas >= quota.limite) ||
+    (quota.limite_guardadas !== null && quota.guardadas >= quota.limite_guardadas)
+  );
+  const blocked = quota?.requiere_abono || noSpace;
   result(main, `<div class="wrap content"><a class="back" href="${backLink}">
-      ${fromAdmin ? 'Volver al panel de administración' : listing ? 'Volver a Mis publicaciones' : 'Volver a publicaciones'}
+      ${fromAdmin ? 'Volver al panel de administración' : 'Volver a Mis publicaciones'}
     </a>
-    <div class="section-head my-listings-head"><h1>${listing ? 'Editar publicación' : 'Nueva publicación'}</h1>
+    <div class="section-head my-listings-head"><h1>${listing ? 'Editar publicación' : draft ? 'Editar borrador' : 'Nueva publicación'}</h1>
       ${listing ? `<div class="actions">
         <a class="quiet" id="managed-public-link" href="#publicacion/${listing.id}"
-          ${listing.estado === 'activa' && listing.publicador_habilitado ? '' : 'hidden'}>Ver aviso público</a>
+          ${listing.estado === 'activa' && listing.publicador_avisos_visibles ? '' : 'hidden'}>Ver aviso público</a>
         <button type="submit" class="btn" form="publish-form" data-top-submit>Guardar cambios</button>
       </div>` : ''}
     </div>
+    ${quota?.requiere_abono ? listingPlanRequired() : noSpace ? listingQuota(quota) : ''}
+    ${draft?.missingPhotos ? note('Algunas fotos del aviso original no se pudieron copiar. Revisá la galería.', 'warn') : ''}
     ${listing ? '<div id="listing-save-message" aria-live="polite"></div>' : ''}
     <form id="publish-form" class="stack" ${listing ? 'data-top-output="listing-save-message"' : ''}>
       <section class="panel teal"><h2>Datos de la propiedad</h2><div class="fields">
@@ -2494,15 +3604,23 @@ function publish(listing = null, fromAdmin = false) {
         ${whatsappField(listing?.whatsapp ?? '')}
       </section>
       ${listing ? '' : `<section class="panel"><h2>Fotos de la propiedad</h2>
-        <p class="muted">Opcional. Hasta ${maxListingPhotos} fotos JPG, PNG o WebP de 5 MB cada una. La primera queda como portada.</p>
+        <p class="muted">Hasta ${maxListingPhotos} fotos JPG, PNG o WebP de ${maxListingPhotoMB} MB cada una. Se optimizan al subirlas. La primera queda como portada.</p>
         ${photoInput()}
       </section>`}
       ${canSponsor ? `<section class="panel sponsor-setting">
         <label><input name="patrocinada" type="checkbox" ${listing?.patrocinada ? 'checked' : ''}>
-          Mostrar como patrocinado</label>
-        <small>Mientras esté activo, lleva el cartel Patrocinado y tiene prioridad en el orden predeterminado. También puede ocupar uno de los tres lugares de la franja inicial.</small>
+          Mostrar como destacado</label>
+        <small>Lleva el cartel Destacado, tiene prioridad en las búsquedas con el orden predeterminado y aparece en el carrusel de la portada.</small>
       </section>` : ''}
-      ${submitButton(listing ? 'Guardar cambios' : 'Publicar')}
+      ${listing ? submitButton('Guardar cambios') : `<div class="panel draft-actions">
+        <p class="muted">Los borradores se guardan en este navegador y no ocupan cupo.</p>
+        <div class="actions">
+          <button class="quiet" type="button" id="save-draft">Guardar borrador</button>
+          <button class="quiet" type="button" id="preview-draft">Vista previa</button>
+          <button class="btn" type="submit" ${blocked ? 'disabled' : ''}>Publicar</button>
+        </div>
+        <div data-output aria-live="polite"></div>
+      </div>`}
     </form>
     ${listing ? `<div class="stack listing-management">
       <div id="managed-photos"></div>${listingAvailability(listing)}
@@ -2510,8 +3628,9 @@ function publish(listing = null, fromAdmin = false) {
   </div>`);
 
   const form = main.querySelector('#publish-form');
-  if (listing) fillListingForm(form, listing);
-  const getPhotos = listing ? () => [] : setupPhotoPicker(form);
+  if (listing || draft) fillListingForm(form, draft?.fields ?? listingFormFields(listing));
+  const getPhotos = listing ? () => [] : setupPhotoPicker(form, 0, draft?.photos);
+  const sourcePhotos = new Map((draft?.photos ?? []).map((photo, index) => [photo, draft.photoSources?.[index]]));
   const validateWhatsApp = setupWhatsAppValidation(form);
   let savedListing = listing;
   const originalCurrency = () => savedListing && askingPrice(savedListing).moneda;
@@ -2549,9 +3668,42 @@ function publish(listing = null, fromAdmin = false) {
   form.elements.moneda.onchange = updateExpenseCurrencies;
   updatePropertyFields();
   updateOperationFields();
-  if (listing) setupListingManagement(listing);
+  if (listing) setupListingManagement(listing, backLink);
+
+  const draftButton = form.querySelector('#save-draft');
+  let draftWrite;
+  if (draftButton) {
+    const owner = user.id;
+    draftButton.onclick = async () => {
+      draftButton.disabled = true;
+      const output = form.querySelector('[data-output]');
+      const fields = Object.fromEntries([...form.elements]
+        .filter((field) => field.name && ['INPUT', 'SELECT', 'TEXTAREA'].includes(field.tagName) && field.type !== 'file')
+        .map((field) => [field.name, field.type === 'checkbox' ? field.checked : field.value]));
+      try {
+        const photos = getPhotos();
+        const copy = {
+          ...draft, id: draft?.id ?? crypto.randomUUID(), owner, updated: Date.now(), fields, photos,
+          photoSources: photos.map((photo) => sourcePhotos.get(photo) || 0),
+        };
+        draftWrite = withDrafts('readwrite', (store) => store.put(copy));
+        await draftWrite;
+        draft = copy;
+        if (!form.isConnected) return;
+        history.replaceState(history.state, '', '#publicar?borrador=' + copy.id);
+        result(output, note('Borrador guardado. Podés retomarlo desde Mis publicaciones.'));
+      } catch {
+        result(output, note('No pudimos guardar el borrador en este navegador.', 'error'));
+      } finally {
+        draftWrite = undefined;
+        draftButton.disabled = false;
+      }
+    };
+    form.querySelector('#preview-draft').onclick = () => previewDraft(form, getPhotos());
+  }
 
   submit(form, async (data, output) => {
+    if (blocked) return;
     if (!validateWhatsApp()) return;
     const photos = getPhotos();
     const value = (name) => data.get(name)?.trim() || null;
@@ -2589,10 +3741,24 @@ function publish(listing = null, fromAdmin = false) {
       result(output, note('Cambios guardados.'));
       return;
     }
+    draftButton.disabled = true;
+    if (draftWrite) await draftWrite.catch(() => {});
+    draftButton.disabled = true;
+    if (draft) {
+      try { await withDrafts('readwrite', (store) => store.delete(draft.id)); }
+      catch { /* El aviso ya se publicó y se puede administrar desde su ficha. */ }
+    }
     if (photos.length) {
       result(output, note('Subiendo fotos…'));
       try {
-        await uploadPhotos('/publicaciones/' + publication.id, photos);
+        const path = '/publicaciones/' + publication.id;
+        const order = photos.map((photo) => sourcePhotos.get(photo) || 0);
+        try {
+          await uploadPhotos(path, photos, { origin: draft?.origin, order });
+        } catch (error) {
+          if (error.status !== 404 || !order.some(Boolean)) throw error;
+          await uploadPhotos(path, photos);
+        }
       } catch (error) {
         photoUploadError = {
           id: publication.id,
@@ -2607,16 +3773,15 @@ function publish(listing = null, fromAdmin = false) {
   });
 }
 
-async function contracts(version) {
+async function contracts(version, registrar = false) {
+  const title = registrar ? 'Nuevo contrato' : 'Mis contratos';
   if (!user) {
-    result(main, `<div class="wrap content"><h1>Mis contratos</h1><div class="panel">${loginPrompt('Ingresá para registrar un contrato o verificar un ajuste.')}</div></div>`);
+    result(main, `<div class="wrap content"><h1>${title}</h1><div class="panel">${loginPrompt('Ingresá para registrar un contrato o verificar un ajuste.')}</div></div>`);
     return;
   }
-  const records = await api('/contratos');
+  const records = registrar ? [] : await api('/contratos');
   if (version !== routeVersion) return;
-  result(main, `<div class="wrap content"><h1>Mis contratos</h1><p class="muted">Consultá el calendario y compará un importe informado con el ajuste calculado.</p>
-    <div class="stack"><section class="panel"><details ${records.length ? '' : 'open'}>
-      <summary>Registrar contrato</summary><form id="contract-form" class="fields">
+  const formHtml = `<form id="contract-form" class="fields">
       ${input('Fecha de inicio', 'fecha_inicio', 'type="date" required')}
       ${input('Duración (meses)', 'duracion_meses', 'type="number" min="1" max="120" value="12" required')}
       ${input('Alquiler inicial', 'monto', 'type="number" min="0.01" step="0.01" placeholder="500000" required')}
@@ -2625,12 +3790,19 @@ async function contracts(version) {
       ${input('Ajuste cada (meses)', 'meses_periodicidad', 'type="number" min="1" max="60" value="3" required')}
       ${indexFields()}
       ${input('Tasa fija por ajuste (%)', 'tasa_ajuste', 'type="number" min="0" step="0.01" required')}
-      ${submitButton('Registrar contrato')}</form></details></section>
+      ${submitButton('Registrar contrato')}</form>`;
+  result(main, `<div class="wrap content">
+    ${registrar ? '<a class="back" href="#contratos">Volver a mis contratos</a>' : ''}
+    <h1>${title}</h1>
+    ${registrar ? `<section class="panel teal">${formHtml}</section>` : `
+    <p class="muted">Consultá el calendario y compará un importe informado con el ajuste calculado.</p>
+    <div class="stack"><section class="panel"><details ${records.length ? '' : 'open'}>
+      <summary>Registrar contrato</summary>${formHtml}</details></section>
     <section><h2>Contratos registrados</h2>${records.length ? '<div class="cards">' + records.map((c) =>
       `<article class="card"><p class="eyebrow">Contrato #${c.id}</p><h3>${h(money(c.monto_base))}</h3>
       <p class="muted">${h(date(c.fecha_inicio))} al ${h(date(c.fecha_fin))}<br>${h(adjustment(c))} cada ${c.meses_periodicidad} meses</p>
       <a class="quiet" href="#contrato/${c.id}">Ver contrato</a></article>`).join('') + '</div>' :
-      '<p class="empty">Todavía no hay contratos registrados.</p>'}</section></div></div>`);
+      '<p class="empty">Todavía no hay contratos registrados.</p>'}</section></div>`}</div>`);
   const form = main.querySelector('#contract-form');
   setupAdjustmentFields(form);
   submit(form, async (data) => {
@@ -2749,10 +3921,12 @@ function legalPage({ title, sections }) {
 
 async function route() {
   closeAccountPanel();
+  for (const menu of header.querySelectorAll('.nav-dropdown[open]')) menu.open = false;
+  if (dialog.open && dialogBody.querySelector('[data-transfer-content]')) dialog.close();
   const comparePanel = document.querySelector('#compare-dialog');
   if (comparePanel.open) comparePanel.close();
-  releaseSimilarCarousel?.();
-  releaseSimilarCarousel = undefined;
+  releaseListingCarousel?.();
+  releaseListingCarousel = undefined;
   releasePublicationMap?.();
   releasePublicationMap = undefined;
   releasePhotoPreviews?.();
@@ -2762,9 +3936,10 @@ async function route() {
   const version = ++routeVersion;
   const [fragment, filterQuery] = location.hash.slice(1).split('?', 2);
   const [page, id] = fragment.split('/');
+  const newContract = page === 'contratos' && id === 'nuevo';
   const documentPage = Object.hasOwn(legalPages, page) ? legalPages[page] : null;
   const tab = documentPage ? page : ['contrato', 'contratos'].includes(page) ? 'contratos' :
-    ['publicar', 'cuenta', 'comprar', 'mis-publicaciones', 'admin'].includes(page) ? page : 'buscar';
+    ['publicar', 'cuenta', 'comprar', 'mis-publicaciones', 'admin', 'planes'].includes(page) ? page : 'buscar';
   const isPublication = page === 'publicacion' && /^\d+$/.test(id);
   const isPublisher = page === 'publicador' && /^\d+$/.test(id);
   const view = isPublication ? 'publicacion' : isPublisher ? 'publicador' : page === 'guardados' ? 'guardados' : tab;
@@ -2785,8 +3960,9 @@ async function route() {
     searchOperation = view === 'comprar' ? 'venta' : 'alquiler';
     setSearchFilters(new URLSearchParams(filterQuery));
   }
+  const navView = newContract ? 'nuevo-contrato' : view === 'guardados' ? view : tab;
   for (const link of document.querySelectorAll('[data-view]')) {
-    if (link.dataset.view === tab) link.setAttribute('aria-current', 'page');
+    if (link.dataset.view === navView) link.setAttribute('aria-current', 'page');
     else link.removeAttribute('aria-current');
   }
   result(main, '<div class="wrap content"><p role="status">Cargando…</p></div>');
@@ -2797,14 +3973,15 @@ async function route() {
     else if (isPublisher) await publisherPage(id, version);
     else if (view === 'guardados') await savedListingsPage(filterQuery, version);
     else if (view === 'cuenta') accountPage(new URLSearchParams(filterQuery));
+    else if (view === 'planes') await planesPage(version);
     else if (view === 'admin') await adminPage(version);
     else if (view === 'mis-publicaciones') {
       const fromAdmin = user?.rol === 'ADMIN' && new URLSearchParams(filterQuery).get('origen') === 'admin';
       await myListings(/^\d+$/.test(id) ? id : null, version, fromAdmin);
     }
     else if (page === 'contrato' && /^\d+$/.test(id)) await contract(id, version);
-    else if (page === 'contratos') await contracts(version);
-    else if (page === 'publicar') await newListing(version);
+    else if (page === 'contratos') await contracts(version, newContract);
+    else if (page === 'publicar') await newListing(version, new URLSearchParams(filterQuery));
     else {
       await search(version, returningToResults);
       if (returningToResults && version === routeVersion) {
@@ -2823,6 +4000,11 @@ async function route() {
 
 function setupScrollHeader() {
   let referenceY = Math.max(0, window.scrollY);
+  const updateHeaderHeight = () => {
+    document.documentElement.style.setProperty('--header-height', header.offsetHeight + 'px');
+  };
+  updateHeaderHeight();
+  new ResizeObserver(updateHeaderHeight).observe(header);
 
   window.addEventListener('scroll', () => {
     const y = Math.max(0, window.scrollY);
@@ -2839,11 +4021,46 @@ function setupScrollHeader() {
   }, { passive: true });
 }
 
+function setupNavigationMenus() {
+  const menus = header.querySelectorAll('.nav-dropdown');
+  for (const menu of menus) {
+    let closeTimer;
+    menu.addEventListener('pointerenter', (event) => {
+      if (event.pointerType !== 'mouse') return;
+      clearTimeout(closeTimer);
+      for (const other of menus) {
+        if (other !== menu) other.open = false;
+      }
+      menu.open = true;
+    });
+    menu.addEventListener('pointerleave', (event) => {
+      if (event.pointerType !== 'mouse') return;
+      closeTimer = setTimeout(() => {
+        if (!menu.querySelector(':focus-visible')) menu.open = false;
+      }, 140);
+    });
+  }
+  document.addEventListener('click', (event) => {
+    for (const menu of menus) {
+      if (!menu.contains(event.target) || event.target.closest('.nav-dropdown-panel a')) menu.open = false;
+    }
+  });
+  header.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    const menu = event.target.closest('.nav-dropdown[open]');
+    if (!menu) return;
+    menu.open = false;
+    menu.querySelector('summary').focus();
+  });
+}
+
 if (token) {
   try { setUser(await api('/usuarios/me'), token); }
   catch { setUser(null); }
+  await loadAccountFavorites();
 }
 setupScrollHeader();
+setupNavigationMenus();
 document.querySelector('#footer-back-to-top').onclick = () => {
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   window.scrollTo({ top: 0, behavior: reducedMotion ? 'instant' : 'smooth' });

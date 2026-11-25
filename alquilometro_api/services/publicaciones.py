@@ -1,10 +1,12 @@
 from dataclasses import dataclass, replace
+from datetime import timedelta
 from decimal import Decimal
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session
 
-from alquilometro_api.core.archivos_fotos import borrar_archivo_foto
+from alquilometro_api.core.archivos_fotos import borrar_fotos_sin_referencias
+from alquilometro_api.domain.abonos import DIAS_GRACIA
 from alquilometro_api.domain.analisis_economico import AnalisisEconomico
 from alquilometro_api.domain.errores import (
     ConflictoDominio,
@@ -13,7 +15,9 @@ from alquilometro_api.domain.errores import (
     ValidacionError,
 )
 from alquilometro_api.domain.moneda import Moneda
+from alquilometro_api.domain.patrocinio import hoy_en_argentina
 from alquilometro_api.domain.rol import Rol
+from alquilometro_api.models.contrato import ContratoAlquiler
 from alquilometro_api.models.propiedad import Propiedad
 from alquilometro_api.models.publicacion import Publicacion
 from alquilometro_api.models.usuario import Usuario
@@ -29,6 +33,21 @@ from alquilometro_api.schemas.publicacion import (
 from alquilometro_api.services.geocodificacion import Geocodificador
 
 CUPO_PILOTO = 10
+CUPO_TOTAL_INMOBILIARIA = 30
+
+
+def anunciante_visible():
+    hoy = hoy_en_argentina()
+    return Usuario.habilitada.is_(True) & or_(
+        Usuario.rol != Rol.INMOBILIARIA,
+        Usuario.abono_vigente_hasta.is_(None)
+        & or_(
+            Usuario.abono_corte_sin_pago.is_(None),
+            Usuario.abono_corte_sin_pago > hoy,
+        ),
+        Usuario.abono_vigente_hasta >= hoy - timedelta(days=DIAS_GRACIA),
+    )
+
 
 _COLUMNAS_GASTOS = {
     'expensas_mensuales': 'expensas_mensuales',
@@ -80,16 +99,25 @@ class ServicioPublicaciones:
             raise PermisoInsuficiente(msg)
         if datos.patrocinada and publicador.rol is not Rol.ADMIN:
             raise PermisoInsuficiente(
-                'Solo un administrador puede patrocinar un aviso.'
+                'Solo un administrador puede destacar un aviso.'
             )
 
+        self._exigir_abono(publicador)
         propiedad = Propiedad(**datos.propiedad.model_dump())
         self._ubicar_propiedad(propiedad)
         if publicador.rol is Rol.INMOBILIARIA:
             self._bloquear_cupo(publicador.id)
-            self._validar_cupo(publicador.id)
+            self._validar_activacion(publicador)
+            if (
+                self._contar_publicaciones(publicador.id)
+                >= CUPO_TOTAL_INMOBILIARIA
+            ):
+                raise ConflictoDominio(
+                    f'Ya tenés {CUPO_TOTAL_INMOBILIARIA} avisos guardados. '
+                    'Eliminá uno para liberar espacio.'
+                )
         publicacion = Publicacion(propiedad=propiedad, publicador=publicador)
-        _asignar_datos(publicacion, datos)
+        asignar_datos(publicacion, datos)
         publicacion.patrocinada = datos.patrocinada
 
         self.sesion.add(propiedad)
@@ -116,16 +144,18 @@ class ServicioPublicaciones:
         ):
             if usuario.rol is not Rol.ADMIN:
                 raise PermisoInsuficiente(
-                    'Solo un administrador puede cambiar el patrocinio.'
+                    'Solo un administrador puede cambiar la visibilidad.'
                 )
             publicacion.patrocinada = datos.patrocinada
+            publicacion.patrocinio_desde = None
+            publicacion.patrocinio_hasta = None
         propiedad = publicacion.propiedad
         cambio_direccion = propiedad.direccion != datos.propiedad.direccion
         for campo, valor in datos.propiedad.model_dump().items():
             setattr(propiedad, campo, valor)
         if cambio_direccion or propiedad.latitud_aproximada is None:
             self._ubicar_propiedad(propiedad)
-        _asignar_datos(publicacion, datos)
+        asignar_datos(publicacion, datos)
 
         self.sesion.commit()
         self.sesion.refresh(publicacion)
@@ -158,18 +188,36 @@ class ServicioPublicaciones:
     def eliminar(self, publicacion_id: int, usuario: Usuario) -> None:
         """Borra el aviso y su propiedad si no tiene otros avisos."""
         publicacion = self.obtener_gestionable(publicacion_id, usuario)
+        if publicacion.patrocinio_pendiente:
+            raise ConflictoDominio(
+                'El pago del aviso destacado está en revisión. '
+                'Resolvelo antes de eliminar el aviso.'
+            )
+        archivos = self.preparar_eliminacion(publicacion)
+        self.sesion.commit()
+        borrar_fotos_sin_referencias(self.sesion, archivos)
+
+    def preparar_eliminacion(self, publicacion: Publicacion) -> list[str]:
         archivos = [foto.nombre_archivo for foto in publicacion.fotos]
         propiedad = publicacion.propiedad
-        otros_avisos = [
-            p for p in propiedad.publicaciones if p is not publicacion
-        ]
+        otro_aviso = self.sesion.scalar(
+            select(Publicacion.id)
+            .where(
+                Publicacion.propiedad_id == propiedad.id,
+                Publicacion.id != publicacion.id,
+            )
+            .limit(1)
+        )
 
+        self.sesion.execute(
+            update(ContratoAlquiler)
+            .where(ContratoAlquiler.publicacion_id == publicacion.id)
+            .values(publicacion_id=None)
+        )
         self.sesion.delete(publicacion)
-        if not otros_avisos:
+        if otro_aviso is None:
             self.sesion.delete(propiedad)
-        self.sesion.commit()
-        for archivo in archivos:
-            borrar_archivo_foto(archivo)
+        return archivos
 
     def obtener_gestionable(
         self, publicacion_id: int, usuario: Usuario
@@ -200,25 +248,47 @@ class ServicioPublicaciones:
         return CupoPublicacionesRespuesta(
             activas=self._contar_activas(usuario.id),
             limite=CUPO_PILOTO if usuario.rol is Rol.INMOBILIARIA else None,
+            guardadas=self._contar_publicaciones(usuario.id),
+            limite_guardadas=(
+                CUPO_TOTAL_INMOBILIARIA
+                if usuario.rol is Rol.INMOBILIARIA
+                else None
+            ),
+            requiere_abono=(
+                usuario.rol is Rol.INMOBILIARIA and not usuario.abono_vigente
+            ),
+            avisos_visibles=usuario.avisos_visibles,
         )
 
     def _contar_activas(self, publicador_id: int) -> int:
-        consulta = select(func.count()).select_from(Publicacion).where(
-            Publicacion.publicador_id == publicador_id,
-            Publicacion.estado == 'activa',
+        return self._contar_publicaciones(publicador_id, solo_activas=True)
+
+    def _contar_publicaciones(
+        self, publicador_id: int, *, solo_activas: bool = False
+    ) -> int:
+        consulta = (
+            select(func.count())
+            .select_from(Publicacion)
+            .where(
+                Publicacion.publicador_id == publicador_id,
+            )
         )
+        if solo_activas:
+            consulta = consulta.where(Publicacion.estado == 'activa')
         return self.sesion.execute(consulta).scalar_one()
 
     def _bloquear_cupo(self, publicador_id: int) -> None:
         # Serializa las altas y reactivaciones antes de contar el cupo.
         if self.sesion.get_bind().dialect.name == 'sqlite':
             self.sesion.execute(
-                update(Usuario).where(Usuario.id == publicador_id)
+                update(Usuario)
+                .where(Usuario.id == publicador_id)
                 .values(nombre=Usuario.nombre)
             )
         else:
             self.sesion.execute(
-                select(Usuario.id).where(Usuario.id == publicador_id)
+                select(Usuario.id)
+                .where(Usuario.id == publicador_id)
                 .with_for_update()
             )
 
@@ -228,6 +298,18 @@ class ServicioPublicaciones:
                 f'Alcanzaste el cupo de {CUPO_PILOTO} avisos activos. '
                 'Pausá o cerrá un aviso para liberar un lugar.'
             )
+
+    @staticmethod
+    def _exigir_abono(publicador: Usuario) -> None:
+        if publicador.rol is Rol.INMOBILIARIA and not publicador.abono_vigente:
+            raise PermisoInsuficiente(
+                'Necesitás un abono vigente para publicar o reactivar avisos.'
+            )
+
+    def _validar_activacion(self, publicador: Usuario) -> None:
+        self.sesion.refresh(publicador, ['abono_vigente_hasta'])
+        self._exigir_abono(publicador)
+        self._validar_cupo(publicador.id)
 
     def actualizar_estado(
         self, publicacion_id: int, estado: EstadoPublicacion, usuario: Usuario
@@ -240,7 +322,7 @@ class ServicioPublicaciones:
             self._bloquear_cupo(publicacion.publicador_id)
             self.sesion.refresh(publicacion, ['estado'])
             if publicacion.estado != 'activa':
-                self._validar_cupo(publicacion.publicador_id)
+                self._validar_activacion(publicacion.publicador)
         publicacion.estado = estado
         self.sesion.commit()
 
@@ -250,15 +332,14 @@ class ServicioPublicaciones:
         consulta = update(Publicacion).where(
             Publicacion.id == publicacion_id,
             Publicacion.estado == 'activa',
-            Publicacion.publicador.has(Usuario.habilitada.is_(True)),
+            Publicacion.publicador.has(anunciante_visible()),
         )
         if evento == 'visita':
             consulta = consulta.values(visitas=Publicacion.visitas + 1)
         else:
-            consulta = (
-                consulta.where(Publicacion.whatsapp.is_not(None))
-                .values(clics_whatsapp=Publicacion.clics_whatsapp + 1)
-            )
+            consulta = consulta.where(
+                Publicacion.whatsapp.is_not(None)
+            ).values(clics_whatsapp=Publicacion.clics_whatsapp + 1)
         registrado = self.sesion.scalar(consulta.returning(Publicacion.id))
         if registrado is None:
             raise RecursoNoEncontrado('Este aviso no está disponible.')
@@ -284,7 +365,8 @@ class ServicioPublicaciones:
         ):
             raise ValidacionError('En una venta podés editar expensas y ABL.')
         moneda_base = (
-            Moneda.ARS.value if publicacion.operacion == 'venta'
+            Moneda.ARS.value
+            if publicacion.operacion == 'venta'
             else publicacion.precio_alquiler_moneda
         )
         for campo, monto in cambios.items():
@@ -397,9 +479,7 @@ class ServicioPublicaciones:
             select(Publicacion)
             .join(Publicacion.propiedad)
             .join(Publicacion.publicador)
-            .where(
-                Publicacion.estado == 'activa', Usuario.habilitada.is_(True)
-            )
+            .where(Publicacion.estado == 'activa', anunciante_visible())
         )
 
         if filtros.operacion is not None:
@@ -484,7 +564,7 @@ class ServicioPublicaciones:
         publicacion = self._obtener(publicacion_id)
         if (
             publicacion.estado != 'activa'
-            or not publicacion.publicador.habilitada
+            or not publicacion.publicador.avisos_visibles
         ):
             raise RecursoNoEncontrado('Este aviso no está disponible.')
         return publicacion
@@ -525,7 +605,7 @@ class ServicioPublicaciones:
         )
 
 
-def _asignar_datos(publicacion: Publicacion, datos: PublicacionCrear) -> None:
+def asignar_datos(publicacion: Publicacion, datos: PublicacionCrear) -> None:
     """Copia los datos del aviso a las columnas del modelo."""
     precio = datos.precio_venta or datos.precio_alquiler
     assert precio is not None

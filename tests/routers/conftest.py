@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from datetime import date
 from http import HTTPStatus
 
 import pytest
@@ -6,6 +7,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from alquilometro_api.core.database import get_engine
+from alquilometro_api.models.usuario import Usuario
 from alquilometro_api.semilla import crear_admin
 
 CLAVE = 'clave-segura-123'  # noqa: S105
@@ -32,7 +34,7 @@ def autenticar(cliente: TestClient) -> Callable[..., dict[str, str]]:
 def headers_inmobiliaria(
     cliente: TestClient,
 ) -> dict[str, str]:
-    """Registra una inmobiliaria y devuelve su token para los tests."""
+    """Devuelve el token de una inmobiliaria con abono vigente."""
 
     registro = cliente.post(
         '/auth/registro',
@@ -44,6 +46,11 @@ def headers_inmobiliaria(
         },
     )
     assert registro.status_code == HTTPStatus.CREATED
+    with Session(get_engine()) as sesion:
+        agencia = sesion.get(Usuario, registro.json()['id'])
+        assert agencia is not None
+        agencia.abono_vigente_hasta = date.max
+        sesion.commit()
 
     login = cliente.post(
         '/auth/login',
@@ -62,12 +69,14 @@ def headers_inmobiliaria(
 def autenticar_como(cliente: TestClient) -> Callable[..., dict[str, str]]:
     """Crea un usuario con el rol pedido y devuelve su cabecera Bearer."""
 
-    def _como(email: str, rol: str) -> dict[str, str]:
+    def _como(
+        email: str, rol: str, *, con_abono: bool = False
+    ) -> dict[str, str]:
         if rol == 'ADMIN':  # el registro público no permite este rol
             with Session(get_engine()) as sesion:
                 crear_admin(sesion, email, CLAVE)
         else:
-            cliente.post(
+            registro = cliente.post(
                 '/auth/registro',
                 json={
                     'nombre': 'Usuario',
@@ -76,6 +85,12 @@ def autenticar_como(cliente: TestClient) -> Callable[..., dict[str, str]]:
                     'rol': rol,
                 },
             )
+            if con_abono:
+                with Session(get_engine()) as sesion:
+                    agencia = sesion.get(Usuario, registro.json()['id'])
+                    assert agencia is not None
+                    agencia.abono_vigente_hasta = date.max
+                    sesion.commit()
         login = cliente.post(
             '/auth/login', json={'email': email, 'password': CLAVE}
         )

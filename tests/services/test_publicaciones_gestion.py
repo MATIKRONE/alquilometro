@@ -1,3 +1,4 @@
+from datetime import date
 from decimal import Decimal
 
 import pytest
@@ -28,6 +29,7 @@ def usuario(sesion: Session, email: str, rol: Rol) -> Usuario:
         email=email,
         password_hash='hash',  # noqa: S106
         rol=rol,
+        abono_vigente_hasta=date.max if rol is Rol.INMOBILIARIA else None,
     )
     sesion.add(nuevo)
     sesion.commit()

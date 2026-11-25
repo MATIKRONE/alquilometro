@@ -1,4 +1,5 @@
 import re
+from datetime import date
 from decimal import Decimal
 from typing import Annotated, Literal
 
@@ -89,3 +90,6 @@ class UsuarioRespuesta(BaseModel):
     email: str
     rol: Rol
     ingreso_referencia: IngresoRespuesta | None = None
+    abono_vigente: bool = False
+    abono_vigente_hasta: date | None = None
+    abono_ocultar_desde: date | None = None

@@ -116,6 +116,10 @@ def test_ampliar_limite_de_fotos_conserva_las_anteriores() -> None:
         str(CreateTable(tabla).compile(engine))
         .replace('CONSTRAINT ck_fotos_publicaciones_espacio_20 ', '')
         .replace('espacio BETWEEN 1 AND 20', 'espacio BETWEEN 1 AND 5')
+        .replace(
+            'nombre_archivo VARCHAR(40) NOT NULL',
+            'nombre_archivo VARCHAR(40) NOT NULL UNIQUE',
+        )
     )
     foto = {
         'id': 9,
@@ -136,7 +140,7 @@ def test_ampliar_limite_de_fotos_conserva_las_anteriores() -> None:
         assert conexion.execute(tabla.select()).mappings().one() == foto
         conexion.execute(
             tabla.insert(),
-            foto | {'id': 10, 'espacio': 20, 'nombre_archivo': 'ultima'},
+            foto | {'id': 10, 'espacio': 20},
         )
     engine.dispose()
 

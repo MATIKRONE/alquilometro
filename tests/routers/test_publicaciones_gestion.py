@@ -1,19 +1,26 @@
 from collections.abc import Callable
+from datetime import date
 from http import HTTPStatus
 from io import BytesIO
+from os import utime
 from pathlib import Path
+from time import time
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from fastapi.testclient import TestClient
-from PIL import Image
+from PIL import ExifTags, Image
 from sqlalchemy.orm import Session
 
+from alquilometro_api.core import archivos_fotos
 from alquilometro_api.core.config import get_config
 from alquilometro_api.core.database import get_engine
+from alquilometro_api.domain import abonos
+from alquilometro_api.models import usuario
 from alquilometro_api.semilla import cargar_publicaciones_de_ejemplo
-from alquilometro_api.services import geocodificacion
+from alquilometro_api.services import geocodificacion, retencion_avisos
 from alquilometro_api.services import publicaciones as servicio_publicaciones
+from alquilometro_api.services.fotos import LADO_MAXIMO
 
 Autenticar = Callable[..., dict[str, str]]
 
@@ -37,6 +44,63 @@ def aviso_id(cliente: TestClient, headers_inmobiliaria: dict[str, str]) -> int:
         '/publicaciones', json=datos(), headers=headers_inmobiliaria
     )
     return respuesta.json()['id']
+
+
+def test_los_guardados_son_por_cuenta_y_no_se_duplican(
+    cliente: TestClient, aviso_id: int, autenticar_como: Autenticar
+) -> None:
+    ruta = '/usuarios/me/guardados'
+    uno = autenticar_como('uno@example.com', 'BUSCADOR')
+    otro = autenticar_como('otro@example.com', 'BUSCADOR')
+    aviso = f'{ruta}/{aviso_id}'
+    assert cliente.get(ruta).status_code == HTTPStatus.UNAUTHORIZED
+    for _ in range(2):
+        assert (
+            cliente.put(aviso, headers=uno).status_code
+            == HTTPStatus.NO_CONTENT
+        )
+    assert cliente.get(ruta, headers=uno).json() == [aviso_id]
+    assert cliente.get(ruta, headers=otro).json() == []
+    assert (
+        cliente.delete(aviso, headers=otro).status_code
+        == HTTPStatus.NO_CONTENT
+    )
+    assert cliente.get(ruta, headers=uno).json() == [aviso_id]
+    assert (
+        cliente.delete(aviso, headers=uno).status_code == HTTPStatus.NO_CONTENT
+    )
+    assert cliente.get(ruta, headers=uno).json() == []
+
+
+def test_busquedas_personales_se_pueden_reabrir_y_quitar(
+    cliente: TestClient, autenticar_como: Autenticar
+) -> None:
+    ruta = '/usuarios/me/busquedas'
+    uno = autenticar_como('uno@example.com', 'BUSCADOR')
+    otro = autenticar_como('otro@example.com', 'BUSCADOR')
+    datos = {
+        'nombre': 'Mi presupuesto',
+        'enlace': '#buscar?zona=Belgrano+R&costo_real_max=700000&moneda=ARS',
+    }
+    assert (
+        cliente.put(ruta, json=datos, headers=uno).status_code
+        == HTTPStatus.NO_CONTENT
+    )
+    assert cliente.get(ruta, headers=uno).json() == [datos]
+    assert cliente.get(ruta, headers=otro).json() == []
+    assert (
+        cliente.put(
+            ruta, json=datos | {'enlace': '#admin?filtro=privado'}, headers=uno
+        ).status_code
+        == HTTPStatus.UNPROCESSABLE_ENTITY
+    )
+    assert (
+        cliente.delete(
+            ruta, params={'enlace': datos['enlace']}, headers=uno
+        ).status_code
+        == HTTPStatus.NO_CONTENT
+    )
+    assert cliente.get(ruta, headers=uno).json() == []
 
 
 @pytest.fixture
@@ -436,8 +500,10 @@ def test_agregar_y_eliminar_fotos_de_un_aviso(
 
     imagen = cliente.get(primera['url'])
     assert imagen.status_code == HTTPStatus.OK
-    assert imagen.headers['content-type'] == 'image/png'
-    assert imagen.content == foto_png[1]
+    assert imagen.headers['content-type'] == 'image/webp'
+    with Image.open(BytesIO(imagen.content)) as optimizada:
+        with Image.open(BytesIO(foto_png[1])) as original:
+            assert optimizada.size == original.size
 
     borrado = cliente.delete(primera['url'], headers=headers_inmobiliaria)
     assert borrado.status_code == HTTPStatus.NO_CONTENT
@@ -450,6 +516,181 @@ def test_agregar_y_eliminar_fotos_de_un_aviso(
     assert list(carpeta_fotos.iterdir()) == []
 
 
+def test_admite_y_reescala_foto_grande_de_celular(
+    cliente: TestClient,
+    aviso_id: int,
+    headers_inmobiliaria: dict[str, str],
+    carpeta_fotos: Path,
+) -> None:
+    original = BytesIO()
+    with Image.effect_noise((3600, 2400), 70) as imagen:
+        exif = Image.Exif()
+        exif[ExifTags.Base.Orientation] = 6  # Captura vertical.
+        imagen.save(original, format='JPEG', quality=100, exif=exif)
+    assert original.tell() > 5 * 1024 * 1024
+    respuesta = cliente.post(
+        f'/publicaciones/{aviso_id}/fotos',
+        files=[('fotos', ('celular.jpg', original.getvalue(), 'image/jpeg'))],
+        headers=headers_inmobiliaria,
+    )
+    assert respuesta.status_code == HTTPStatus.CREATED
+    descarga = cliente.get(respuesta.json()[0]['url'])
+    assert descarga.headers['content-type'] == 'image/webp'
+    with Image.open(BytesIO(descarga.content)) as optimizada:
+        assert optimizada.format == 'WEBP'
+        assert optimizada.width < optimizada.height <= LADO_MAXIMO
+        assert ExifTags.Base.Orientation not in optimizada.getexif()
+    assert len(descarga.content) < original.tell() // 10
+    assert [archivo.stat().st_size for archivo in carpeta_fotos.iterdir()] == [
+        len(descarga.content)
+    ]
+
+
+def test_fotos_compartidas_conservan_el_archivo_hasta_la_ultima_referencia(
+    cliente: TestClient,
+    aviso_id: int,
+    headers_inmobiliaria: dict[str, str],
+    carpeta_fotos: Path,
+    foto_png: tuple[str, bytes, str],
+) -> None:
+    cabeceras = headers_inmobiliaria
+    origen = f'/publicaciones/{aviso_id}'
+    subida = cliente.post(
+        f'{origen}/fotos', files=[('fotos', foto_png)], headers=cabeceras
+    )
+    assert subida.status_code == HTTPStatus.CREATED
+    anterior = subida.json()[0]
+    archivo = next(carpeta_fotos.iterdir())
+    copia_simple = cliente.post(
+        '/publicaciones', json=datos(), headers=cabeceras
+    )
+    destino_simple = f'/publicaciones/{copia_simple.json()["id"]}'
+    solo_referencia = cliente.post(
+        f'{destino_simple}/fotos',
+        files=[
+            ('origen_id', (None, str(aviso_id))),
+            ('orden', (None, str(anterior['id']))),
+        ],
+        headers=cabeceras,
+    )
+    assert solo_referencia.status_code == HTTPStatus.CREATED
+    assert list(carpeta_fotos.iterdir()) == [archivo]
+    copia = cliente.post('/publicaciones', json=datos(), headers=cabeceras)
+    destino = f'/publicaciones/{copia.json()["id"]}'
+    fotos = cliente.post(
+        f'{destino}/fotos',
+        data={'origen_id': str(aviso_id), 'orden': ['0', str(anterior['id'])]},
+        files=[('fotos', foto_png)],
+        headers=cabeceras,
+    )
+    assert fotos.status_code == HTTPStatus.CREATED
+    nueva, compartida = fotos.json()
+    assert nueva['id'] < compartida['id']
+    assert cliente.get(destino).json()['fotos'] == [nueva, compartida]
+    assert len(list(carpeta_fotos.iterdir())) == len(fotos.json())
+    assert cliente.delete(origen, headers=cabeceras).status_code == (
+        HTTPStatus.NO_CONTENT
+    )
+    assert archivo.exists()
+    assert cliente.get(compartida['url']).content == archivo.read_bytes()
+    assert cliente.delete(
+        compartida['url'], headers=cabeceras
+    ).status_code == (HTTPStatus.NO_CONTENT)
+    assert archivo.exists()
+    assert cliente.get(nueva['url']).status_code == HTTPStatus.OK
+    assert cliente.delete(destino_simple, headers=cabeceras).status_code == (
+        HTTPStatus.NO_CONTENT
+    )
+    assert not archivo.exists()
+    assert cliente.delete(destino, headers=cabeceras).status_code == (
+        HTTPStatus.NO_CONTENT
+    )
+    assert cliente.get(destino).status_code == HTTPStatus.NOT_FOUND
+    assert list(carpeta_fotos.iterdir()) == []
+
+
+def test_cupo_total_cuenta_pausadas_y_cerradas(
+    cliente: TestClient,
+    aviso_id: int,
+    headers_inmobiliaria: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    limite = 2
+    monkeypatch.setattr(
+        servicio_publicaciones, 'CUPO_TOTAL_INMOBILIARIA', limite
+    )
+    cabeceras = headers_inmobiliaria
+    venta = cliente.post(
+        '/publicaciones', json=datos_venta(), headers=cabeceras
+    )
+    assert venta.status_code == HTTPStatus.CREATED
+    for identificador, estado in (
+        (aviso_id, 'pausada'),
+        (venta.json()['id'], 'cerrada'),
+    ):
+        assert (
+            cliente.patch(
+                f'/publicaciones/mis/{identificador}/estado',
+                json={'estado': estado},
+                headers=cabeceras,
+            ).status_code
+            == HTTPStatus.NO_CONTENT
+        )
+    cupo = cliente.get('/publicaciones/mis/cupo', headers=cabeceras).json()
+    assert cupo['activas'] == 0
+    assert cupo['guardadas'] == cupo['limite_guardadas'] == limite
+    assert (
+        cliente.post(
+            '/publicaciones', json=datos(), headers=cabeceras
+        ).status_code
+        == HTTPStatus.CONFLICT
+    )
+    assert (
+        cliente.delete(
+            f'/publicaciones/{aviso_id}', headers=cabeceras
+        ).status_code
+        == HTTPStatus.NO_CONTENT
+    )
+    assert (
+        cliente.post(
+            '/publicaciones', json=datos(), headers=cabeceras
+        ).status_code
+        == HTTPStatus.CREATED
+    )
+
+
+def test_revision_de_huerfanas_respeta_fotos_en_uso_y_archivos_recientes(  # noqa: PLR0913
+    cliente: TestClient,
+    aviso_id: int,
+    headers_inmobiliaria: dict[str, str],
+    carpeta_fotos: Path,
+    *,
+    foto_png: tuple[str, bytes, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    subida = cliente.post(
+        f'/publicaciones/{aviso_id}/fotos',
+        files=[('fotos', foto_png)],
+        headers=headers_inmobiliaria,
+    )
+    assert subida.status_code == HTTPStatus.CREATED
+    en_uso = next(carpeta_fotos.iterdir())
+    antigua = carpeta_fotos / ('a' * 32)
+    reciente = carpeta_fotos / ('b' * 32)
+    otro_archivo = carpeta_fotos / 'guia.txt'
+    for ruta in (antigua, reciente, otro_archivo):
+        ruta.write_bytes(b'prueba')
+    pasado = time() - archivos_fotos.SEGUNDOS_ANTES_DE_REVISAR - 60
+    for ruta in (en_uso, antigua, otro_archivo):
+        utime(ruta, (pasado, pasado))
+    assert archivos_fotos.revisar_fotos_huerfanas() == 1
+    assert antigua.exists()
+    monkeypatch.setattr(get_config(), 'fotos_eliminar_huerfanas', True)
+    assert archivos_fotos.revisar_fotos_huerfanas() == 1
+    assert not antigua.exists()
+    assert all(ruta.exists() for ruta in (en_uso, reciente, otro_archivo))
+
+
 def test_mis_publicaciones_exige_cuenta_y_muestra_solo_avisos_propios(
     cliente: TestClient,
     aviso_id: int,
@@ -458,7 +699,8 @@ def test_mis_publicaciones_exige_cuenta_y_muestra_solo_avisos_propios(
 ) -> None:
     otra = autenticar_como('otra@example.com', 'INMOBILIARIA')
     assert cliente.get('/publicaciones/mis').status_code in {
-        HTTPStatus.UNAUTHORIZED, HTTPStatus.FORBIDDEN,
+        HTTPStatus.UNAUTHORIZED,
+        HTTPStatus.FORBIDDEN,
     }
     assert cliente.get('/publicaciones/mis', headers=otra).json() == []
     propios = cliente.get('/publicaciones/mis', headers=headers_inmobiliaria)
@@ -471,9 +713,12 @@ def test_mis_publicaciones_exige_cuenta_y_muestra_solo_avisos_propios(
         ('precio', {'monto': '700000'}),
         ('estado', {'estado': 'pausada'}),
     ]:
-        assert cliente.patch(
-            f'{ruta}/{campo}', json=cuerpo, headers=otra
-        ).status_code == HTTPStatus.FORBIDDEN
+        assert (
+            cliente.patch(
+                f'{ruta}/{campo}', json=cuerpo, headers=otra
+            ).status_code
+            == HTTPStatus.FORBIDDEN
+        )
 
 
 def test_solo_admin_puede_cambiar_el_patrocinio_de_un_aviso(
@@ -483,14 +728,20 @@ def test_solo_admin_puede_cambiar_el_patrocinio_de_un_aviso(
     autenticar_como: Autenticar,
 ) -> None:
     ruta = f'/publicaciones/{aviso_id}'
-    assert cliente.post(
-        '/publicaciones',
-        json=datos(patrocinada=True),
-        headers=headers_inmobiliaria,
-    ).status_code == HTTPStatus.FORBIDDEN
-    assert cliente.put(
-        ruta, json=datos(patrocinada=True), headers=headers_inmobiliaria
-    ).status_code == HTTPStatus.FORBIDDEN
+    assert (
+        cliente.post(
+            '/publicaciones',
+            json=datos(patrocinada=True),
+            headers=headers_inmobiliaria,
+        ).status_code
+        == HTTPStatus.FORBIDDEN
+    )
+    assert (
+        cliente.put(
+            ruta, json=datos(patrocinada=True), headers=headers_inmobiliaria
+        ).status_code
+        == HTTPStatus.FORBIDDEN
+    )
     administrador = autenticar_como('admin@example.com', 'ADMIN')
     patrocinada = cliente.put(
         ruta, json=datos(patrocinada=True), headers=administrador
@@ -504,14 +755,182 @@ def test_solo_admin_puede_cambiar_el_patrocinio_de_un_aviso(
     )
     assert editada.status_code == HTTPStatus.OK
     assert editada.json()['patrocinada'] is True
-    assert cliente.put(
-        ruta, json=datos(patrocinada=False), headers=headers_inmobiliaria
-    ).status_code == HTTPStatus.FORBIDDEN
+    assert (
+        cliente.put(
+            ruta, json=datos(patrocinada=False), headers=headers_inmobiliaria
+        ).status_code
+        == HTTPStatus.FORBIDDEN
+    )
     retirada = cliente.put(
         ruta, json=datos(patrocinada=False), headers=administrador
     )
     assert retirada.status_code == HTTPStatus.OK
     assert retirada.json()['patrocinada'] is False
+
+
+def test_publicar_y_reactivar_requieren_abono_vigente(
+    cliente: TestClient,
+    autenticar_como: Autenticar,
+) -> None:
+    agencia = autenticar_como('nueva@example.com', 'INMOBILIARIA')
+    admin = autenticar_como('admin@example.com', 'ADMIN')
+    cupo = '/publicaciones/mis/cupo'
+    agencia_id = cliente.get('/usuarios/me', headers=agencia).json()['id']
+    abono = f'/admin/inmobiliarias/{agencia_id}/abono'
+    assert cliente.get(cupo, headers=agencia).json()['requiere_abono'] is True
+    assert (
+        cliente.post(
+            '/publicaciones', json=datos(), headers=agencia
+        ).status_code
+        == HTTPStatus.FORBIDDEN
+    )
+    assert cliente.get('/planes', headers=agencia).status_code == HTTPStatus.OK
+    assert cliente.get('/publicaciones/mis', headers=agencia).json() == []
+
+    assert (
+        cliente.patch(
+            abono, json={'pagado_el': '2099-01-01'}, headers=admin
+        ).status_code
+        == HTTPStatus.NO_CONTENT
+    )
+    assert cliente.get(cupo, headers=agencia).json()['requiere_abono'] is False
+    aviso = cliente.post('/publicaciones', json=datos(), headers=agencia)
+    assert aviso.status_code == HTTPStatus.CREATED
+    aviso_id = aviso.json()['id']
+    estado = f'/publicaciones/mis/{aviso_id}/estado'
+
+    assert (
+        cliente.patch(
+            abono, json={'pagado_el': '2000-01-01'}, headers=admin
+        ).status_code
+        == HTTPStatus.NO_CONTENT
+    )
+    assert (
+        cliente.get(f'/publicaciones/{aviso_id}').status_code
+        == HTTPStatus.NOT_FOUND
+    )
+    assert (
+        cliente.patch(
+            estado, json={'estado': 'pausada'}, headers=agencia
+        ).status_code
+        == HTTPStatus.NO_CONTENT
+    )
+    assert (
+        cliente.patch(
+            estado, json={'estado': 'activa'}, headers=agencia
+        ).status_code
+        == HTTPStatus.FORBIDDEN
+    )
+
+
+def test_retencion_y_renovacion_de_avisos(
+    cliente: TestClient,
+    autenticar_como: Autenticar,
+    monkeypatch: pytest.MonkeyPatch,
+    carpeta_fotos: Path,
+    foto_png: tuple[str, bytes, str],
+) -> None:
+    fecha = date(2026, 1, 1)
+    for modulo in (abonos, usuario, retencion_avisos, servicio_publicaciones):
+        monkeypatch.setattr(modulo, 'hoy_en_argentina', lambda: fecha)
+
+    agencia = autenticar_como('retencion@example.com', 'INMOBILIARIA')
+    admin = autenticar_como('admin@example.com', 'ADMIN')
+    agencia_id = cliente.get('/usuarios/me', headers=agencia).json()['id']
+    abono = f'/admin/inmobiliarias/{agencia_id}/abono'
+
+    def registrar_pago() -> None:
+        respuesta = cliente.patch(
+            abono, json={'pagado_el': fecha.isoformat()}, headers=admin
+        )
+        assert respuesta.status_code == HTTPStatus.NO_CONTENT
+
+    registrar_pago()
+    aviso = cliente.post(
+        '/publicaciones', json=datos(), headers=agencia
+    ).json()
+    pausado = cliente.post(
+        '/publicaciones', json=datos(), headers=agencia
+    ).json()
+    aviso_url = f'/publicaciones/{aviso["id"]}'
+    assert (
+        cliente.patch(
+            f'/publicaciones/mis/{pausado["id"]}/estado',
+            json={'estado': 'pausada'},
+            headers=agencia,
+        ).status_code
+        == HTTPStatus.NO_CONTENT
+    )
+    subida = cliente.post(
+        aviso_url + '/fotos', files=[('fotos', foto_png)], headers=agencia
+    )
+    assert subida.status_code == HTTPStatus.CREATED
+    foto_url = subida.json()[0]['url']
+    avisos_creados = {aviso['id'], pausado['id']}
+
+    fecha = date(2026, 2, 4)
+    assert cliente.get(foto_url).status_code == HTTPStatus.OK
+    perfil = cliente.get('/usuarios/me', headers=agencia).json()
+    assert perfil['abono_vigente'] is False
+    assert perfil['abono_ocultar_desde'] == '2026-02-05'
+    fecha = date(2026, 2, 5)
+    assert cliente.get('/publicaciones').json() == []
+    assert cliente.get(aviso_url).status_code == HTTPStatus.NOT_FOUND
+    assert cliente.get(foto_url).status_code == HTTPStatus.NOT_FOUND
+    guardados = cliente.get('/publicaciones/mis', headers=agencia).json()
+    assert {p['id'] for p in guardados} == avisos_creados
+
+    assert (
+        cliente.patch(
+            abono, json={'pagado_el': None}, headers=admin
+        ).status_code
+        == HTTPStatus.NO_CONTENT
+    )
+    assert cliente.get(aviso_url).status_code == HTTPStatus.NOT_FOUND
+
+    fecha = date(2026, 2, 20)
+    registrar_pago()
+    assert cliente.get(foto_url).status_code == HTTPStatus.OK
+    assert cliente.get(f'/publicaciones/{pausado["id"]}').status_code == (
+        HTTPStatus.NOT_FOUND
+    )
+
+    fecha = date(2026, 4, 22)
+    retencion_avisos.aplicar_retencion_avisos()
+    guardados = cliente.get('/publicaciones/mis', headers=agencia).json()
+    assert {p['id'] for p in guardados} == avisos_creados
+    fecha = date(2026, 4, 23)
+    assert (
+        cliente.post(
+            '/planes/abono/pago',
+            json={'referencia': 'TR-RETENCION'},
+            headers=agencia,
+        ).status_code
+        == HTTPStatus.NO_CONTENT
+    )
+    retencion_avisos.aplicar_retencion_avisos()
+    guardados = cliente.get('/publicaciones/mis', headers=agencia).json()
+    assert {p['id'] for p in guardados} == avisos_creados
+    assert (
+        cliente.patch(
+            abono + '/rechazar',
+            json={
+                'referencia': 'TR-RETENCION',
+                'motivo': 'Falta el comprobante.',
+            },
+            headers=admin,
+        ).status_code
+        == HTTPStatus.NO_CONTENT
+    )
+    retencion_avisos.aplicar_retencion_avisos()
+    assert cliente.get('/publicaciones/mis', headers=agencia).json() == []
+    assert not list(carpeta_fotos.iterdir())
+    historial = cliente.get('/planes/pagos', headers=agencia).json()
+    assert [p['pagado_el'] for p in historial] == [
+        None,
+        '2026-02-20',
+        '2026-01-01',
+    ]
 
 
 def test_cupo_compartido_por_operacion_y_liberado_al_pausar(
@@ -524,62 +943,95 @@ def test_cupo_compartido_por_operacion_y_liberado_al_pausar(
     monkeypatch.setattr(servicio_publicaciones, 'CUPO_PILOTO', 1)
     ruta = f'/publicaciones/mis/{aviso_id}/estado'
     cupo = cliente.get('/publicaciones/mis/cupo', headers=publicar)
-    assert cupo.json() == {'activas': 1, 'limite': 1}
-    assert cliente.post(
-        '/publicaciones', json=datos_venta(), headers=publicar
-    ).status_code == HTTPStatus.CONFLICT
-    assert cliente.patch(
-        ruta, json={'estado': 'activa'}, headers=publicar
-    ).status_code == HTTPStatus.NO_CONTENT
-    assert cliente.patch(
-        ruta, json={'estado': 'pausada'}, headers=publicar
-    ).status_code == HTTPStatus.NO_CONTENT
+    assert cupo.json() == {
+        'activas': 1,
+        'limite': 1,
+        'guardadas': 1,
+        'limite_guardadas': servicio_publicaciones.CUPO_TOTAL_INMOBILIARIA,
+        'requiere_abono': False,
+        'avisos_visibles': True,
+    }
+    assert (
+        cliente.post(
+            '/publicaciones', json=datos_venta(), headers=publicar
+        ).status_code
+        == HTTPStatus.CONFLICT
+    )
+    assert (
+        cliente.patch(
+            ruta, json={'estado': 'activa'}, headers=publicar
+        ).status_code
+        == HTTPStatus.NO_CONTENT
+    )
+    assert (
+        cliente.patch(
+            ruta, json={'estado': 'pausada'}, headers=publicar
+        ).status_code
+        == HTTPStatus.NO_CONTENT
+    )
     venta = cliente.post(
         '/publicaciones', json=datos_venta(), headers=publicar
     )
     assert venta.status_code == HTTPStatus.CREATED
-    assert cliente.patch(
-        ruta, json={'estado': 'activa'}, headers=publicar
-    ).status_code == HTTPStatus.CONFLICT
+    assert (
+        cliente.patch(
+            ruta, json={'estado': 'activa'}, headers=publicar
+        ).status_code
+        == HTTPStatus.CONFLICT
+    )
     cierre = cliente.patch(
         f'/publicaciones/mis/{venta.json()["id"]}/estado',
         json={'estado': 'cerrada'},
         headers=publicar,
     )
     assert cierre.status_code == HTTPStatus.NO_CONTENT
-    assert cliente.patch(
-        ruta, json={'estado': 'activa'}, headers=publicar
-    ).status_code == HTTPStatus.NO_CONTENT
+    assert (
+        cliente.patch(
+            ruta, json={'estado': 'activa'}, headers=publicar
+        ).status_code
+        == HTTPStatus.NO_CONTENT
+    )
 
 
 def test_metricas_del_aviso_se_acumulan_y_son_privadas(
-    cliente: TestClient, aviso_id: int, headers_inmobiliaria: dict[str, str],
+    cliente: TestClient,
+    aviso_id: int,
+    headers_inmobiliaria: dict[str, str],
 ) -> None:
     editar = headers_inmobiliaria
     publica = f'/publicaciones/{aviso_id}'
     gestion = f'/publicaciones/mis/{aviso_id}'
     ruta = f'{publica}/metricas'
-    assert cliente.post(
-        ruta, json={'evento': 'whatsapp'}
-    ).status_code == HTTPStatus.NOT_FOUND
-    assert cliente.patch(
-        f'{publica}/whatsapp',
-        json={'whatsapp': '+5491155550199'},
-        headers=editar,
-    ).status_code == HTTPStatus.NO_CONTENT
+    assert (
+        cliente.post(ruta, json={'evento': 'whatsapp'}).status_code
+        == HTTPStatus.NOT_FOUND
+    )
+    assert (
+        cliente.patch(
+            f'{publica}/whatsapp',
+            json={'whatsapp': '+5491155550199'},
+            headers=editar,
+        ).status_code
+        == HTTPStatus.NO_CONTENT
+    )
     for evento in ('visita', 'visita', 'whatsapp'):
-        assert cliente.post(
-            ruta, json={'evento': evento}
-        ).status_code == HTTPStatus.NO_CONTENT
-    assert cliente.post(
-        ruta, json={'evento': 'visita', 'telefono': 'no se registra'}
-    ).status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+        assert (
+            cliente.post(ruta, json={'evento': evento}).status_code
+            == HTTPStatus.NO_CONTENT
+        )
+    assert (
+        cliente.post(
+            ruta, json={'evento': 'visita', 'telefono': 'no se registra'}
+        ).status_code
+        == HTTPStatus.UNPROCESSABLE_ENTITY
+    )
     cliente.patch(
         f'{gestion}/estado', json={'estado': 'pausada'}, headers=editar
     )
-    assert cliente.post(
-        ruta, json={'evento': 'visita'}
-    ).status_code == HTTPStatus.NOT_FOUND
+    assert (
+        cliente.post(ruta, json={'evento': 'visita'}).status_code
+        == HTTPStatus.NOT_FOUND
+    )
     vistas = 2
     propio = cliente.get(gestion, headers=editar).json()
     assert propio['visitas'] == vistas
@@ -638,15 +1090,20 @@ def test_editar_aviso_pausado_reutiliza_datos_y_protege_direccion(
 
 
 def test_gestionar_precio_y_reactivar_aviso(
-    cliente: TestClient, aviso_id: int, headers_inmobiliaria: dict[str, str],
+    cliente: TestClient,
+    aviso_id: int,
+    headers_inmobiliaria: dict[str, str],
 ) -> None:
     ruta = f'/publicaciones/{aviso_id}'
     gestion = f'/publicaciones/mis/{aviso_id}'
     publicar = headers_inmobiliaria
     for estado in ('pausada', 'cerrada'):
-        assert cliente.patch(
-            f'{gestion}/estado', json={'estado': estado}, headers=publicar
-        ).status_code == HTTPStatus.NO_CONTENT
+        assert (
+            cliente.patch(
+                f'{gestion}/estado', json={'estado': estado}, headers=publicar
+            ).status_code
+            == HTTPStatus.NO_CONTENT
+        )
         assert cliente.get('/publicaciones').json() == []
         assert cliente.get(ruta).status_code == HTTPStatus.NOT_FOUND
         costo = cliente.get(f'{ruta}/costo-real')
@@ -654,12 +1111,18 @@ def test_gestionar_precio_y_reactivar_aviso(
         propio = cliente.get(gestion, headers=publicar)
         assert propio.json()['estado'] == estado
 
-    assert cliente.patch(
-        f'{gestion}/precio', json={'monto': '700000.50'}, headers=publicar
-    ).status_code == HTTPStatus.NO_CONTENT
-    assert cliente.patch(
-        f'{gestion}/estado', json={'estado': 'activa'}, headers=publicar
-    ).status_code == HTTPStatus.NO_CONTENT
+    assert (
+        cliente.patch(
+            f'{gestion}/precio', json={'monto': '700000.50'}, headers=publicar
+        ).status_code
+        == HTTPStatus.NO_CONTENT
+    )
+    assert (
+        cliente.patch(
+            f'{gestion}/estado', json={'estado': 'activa'}, headers=publicar
+        ).status_code
+        == HTTPStatus.NO_CONTENT
+    )
     aviso = cliente.get(ruta).json()
     assert aviso['precio_alquiler'] == {'monto': '700000.50', 'moneda': 'ARS'}
     assert aviso['propiedad']['zona'] == 'Caballito'
@@ -680,9 +1143,10 @@ def test_gestionar_gastos_actualiza_costos_y_distingue_cero_de_faltante(
         'comision': 10000,
     }
     otra = autenticar_como('otra@example.com', 'INMOBILIARIA')
-    assert cliente.patch(
-        gestion, json=cambios, headers=otra
-    ).status_code == HTTPStatus.FORBIDDEN
+    assert (
+        cliente.patch(gestion, json=cambios, headers=otra).status_code
+        == HTTPStatus.FORBIDDEN
+    )
     guardada = cliente.patch(
         gestion, json=cambios, headers=headers_inmobiliaria
     )
@@ -703,13 +1167,17 @@ def test_gestionar_gastos_actualiza_costos_y_distingue_cero_de_faltante(
     assert aviso['expensas_mensuales']['monto'] == '50000.50'
     assert aviso['precio_alquiler']['monto'] == '650000.00'
     assert 'abl' in cliente.get(f'{ruta}/costo-real').json()['faltantes']
-    assert cliente.patch(
-        gestion, json={'abl_mensual': -1}, headers=headers_inmobiliaria
-    ).status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+    assert (
+        cliente.patch(
+            gestion, json={'abl_mensual': -1}, headers=headers_inmobiliaria
+        ).status_code
+        == HTTPStatus.UNPROCESSABLE_ENTITY
+    )
 
 
 def test_gastos_de_venta_en_pesos_conservan_el_precio_en_dolares(
-    cliente: TestClient, headers_inmobiliaria: dict[str, str],
+    cliente: TestClient,
+    headers_inmobiliaria: dict[str, str],
 ) -> None:
     venta = cliente.post(
         '/publicaciones', json=datos_venta(), headers=headers_inmobiliaria
@@ -720,12 +1188,16 @@ def test_gastos_de_venta_en_pesos_conservan_el_precio_en_dolares(
     )
     assert actualizada.status_code == HTTPStatus.OK
     assert actualizada.json()['expensas_mensuales'] == {
-        'monto': '42000.00', 'moneda': 'ARS',
+        'monto': '42000.00',
+        'moneda': 'ARS',
     }
     assert actualizada.json()['precio_venta'] == venta['precio_venta']
-    assert cliente.patch(
-        ruta, json={'deposito': 200}, headers=headers_inmobiliaria
-    ).status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+    assert (
+        cliente.patch(
+            ruta, json={'deposito': 200}, headers=headers_inmobiliaria
+        ).status_code
+        == HTTPStatus.UNPROCESSABLE_ENTITY
+    )
 
 
 def test_fotos_de_aviso_pausado_solo_se_sirven_al_publicador(
@@ -755,7 +1227,7 @@ def test_fotos_de_aviso_pausado_solo_se_sirven_al_publicador(
     )
     assert privada.status_code == HTTPStatus.OK
     assert privada.headers['cache-control'] == 'no-store'
-    assert privada.content == foto_png[1]
+    assert privada.headers['content-type'] == 'image/webp'
 
 
 def test_rechaza_carga_invalida_sin_guardar_el_lote(

@@ -4,6 +4,7 @@ from fastapi import (
     APIRouter,
     Depends,
     File,
+    Form,
     Query,
     Response,
     UploadFile,
@@ -151,9 +152,7 @@ def ver_foto_propia(
     sesion: Session = Depends(get_session),
     usuario: Usuario = Depends(usuario_actual),
 ) -> FileResponse:
-    ruta, tipo = ServicioFotos(sesion).servir(
-        publicacion_id, foto_id, usuario
-    )
+    ruta, tipo = ServicioFotos(sesion).servir(publicacion_id, foto_id, usuario)
     return FileResponse(
         ruta,
         media_type=tipo,
@@ -240,16 +239,21 @@ def actualizar_descripcion(
     response_model=list[FotoPublicacionRespuesta],
     status_code=status.HTTP_201_CREATED,
 )
-def agregar_fotos(
+def agregar_fotos(  # noqa: PLR0913
     publicacion_id: int,
-    fotos: Annotated[list[UploadFile], File()],
+    fotos: Annotated[list[UploadFile] | None, File()] = None,
+    *,
+    origen_id: Annotated[int | None, Form(gt=0)] = None,
+    orden: Annotated[list[int] | None, Form()] = None,
     sesion: Session = Depends(get_session),
     usuario: Usuario = Depends(usuario_actual),
 ) -> list[FotoPublicacion]:
     return ServicioFotos(sesion).agregar(
         publicacion_id,
         usuario,
-        [foto.file for foto in fotos],
+        [foto.file for foto in fotos or []],
+        origen_id=origen_id,
+        orden=orden,
     )
 
 

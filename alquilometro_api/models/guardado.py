@@ -1,0 +1,25 @@
+from sqlalchemy import ForeignKey, String
+from sqlalchemy.orm import Mapped, mapped_column
+
+from alquilometro_api.core.database import Base
+
+
+class AvisoGuardado(Base):
+    __tablename__ = 'avisos_guardados'
+
+    usuario_id: Mapped[int] = mapped_column(
+        ForeignKey('usuarios.id'), primary_key=True
+    )
+    publicacion_id: Mapped[int] = mapped_column(
+        ForeignKey('publicaciones.id', ondelete='CASCADE'), primary_key=True
+    )
+
+
+class BusquedaGuardada(Base):
+    __tablename__ = 'busquedas_guardadas'
+
+    usuario_id: Mapped[int] = mapped_column(
+        ForeignKey('usuarios.id'), primary_key=True
+    )
+    enlace: Mapped[str] = mapped_column(String(700), primary_key=True)
+    nombre: Mapped[str] = mapped_column(String(100))

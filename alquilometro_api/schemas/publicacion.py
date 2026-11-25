@@ -4,6 +4,7 @@ from typing import Annotated, Literal
 
 from pydantic import (
     AfterValidator,
+    AliasChoices,
     AliasPath,
     BaseModel,
     ConfigDict,
@@ -63,9 +64,25 @@ class DineroEntrada(BaseModel):
 
 
 TipoPropiedad = Literal[
-    'departamento', 'casa', 'ph', 'dúplex', 'tríplex', 'loft', 'habitación',
-    'quinta', 'local comercial', 'oficina', 'consultorio', 'galpón',
-    'depósito', 'edificio', 'hotel', 'terreno', 'cochera', 'baulera', 'otro',
+    'departamento',
+    'casa',
+    'ph',
+    'dúplex',
+    'tríplex',
+    'loft',
+    'habitación',
+    'quinta',
+    'local comercial',
+    'oficina',
+    'consultorio',
+    'galpón',
+    'depósito',
+    'edificio',
+    'hotel',
+    'terreno',
+    'cochera',
+    'baulera',
+    'otro',
 ]
 TIPOS_SIN_AMBIENTES = {'terreno', 'cochera', 'baulera'}
 
@@ -107,6 +124,10 @@ class EventoPublicacionCrear(BaseModel):
 class CupoPublicacionesRespuesta(BaseModel):
     activas: int
     limite: int | None
+    guardadas: int
+    limite_guardadas: int | None
+    requiere_abono: bool
+    avisos_visibles: bool
 
 
 class EstadoPublicacionActualizar(BaseModel):
@@ -266,6 +287,10 @@ class PublicacionRespuesta(PublicacionCrear):
     publicador_id: int
     fotos: list[FotoPublicacionRespuesta]
     whatsapp_url: str | None
+    patrocinada: bool = Field(
+        default=False,
+        validation_alias=AliasChoices('patrocinio_activo', 'patrocinada'),
+    )
 
     @field_validator('operacion', mode='before')
     @classmethod
@@ -277,12 +302,17 @@ class PublicacionGestionRespuesta(PublicacionRespuesta):
     estado: EstadoPublicacion
     visitas: int
     clics_whatsapp: int
+    patrocinio_pendiente: bool = False
 
 
 class PublicacionEdicionRespuesta(PublicacionGestionRespuesta):
+    patrocinada: bool = False
     propiedad: PropiedadCrear
     publicador_habilitado: bool = Field(
         validation_alias=AliasPath('publicador', 'habilitada')
+    )
+    publicador_avisos_visibles: bool = Field(
+        validation_alias=AliasPath('publicador', 'avisos_visibles')
     )
 
 

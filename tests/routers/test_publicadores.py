@@ -29,7 +29,7 @@ def test_perfil_solo_publica_datos_del_anunciante_y_sus_avisos(
         'foto_url': None,
         'calificaciones': {},
     }
-    otro = autenticar_como('otra@example.com', 'INMOBILIARIA')
+    otro = autenticar_como('otra@example.com', 'INMOBILIARIA', con_abono=True)
     datos = {
         'propiedad': {
             'direccion': 'Cuenca 3500',

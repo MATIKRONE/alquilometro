@@ -1,10 +1,19 @@
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 from typing import TYPE_CHECKING
 from urllib.parse import quote
 
-from sqlalchemy import Boolean, ForeignKey, Integer, Numeric, String
+from sqlalchemy import (
+    Boolean,
+    Date,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    false,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from alquilometro_api.core.database import Base
@@ -12,6 +21,7 @@ from alquilometro_api.domain.desglose_costo import CostoEntrada, DesgloseCosto
 from alquilometro_api.domain.dinero import Dinero
 from alquilometro_api.domain.errores import ValidacionError
 from alquilometro_api.domain.moneda import Moneda
+from alquilometro_api.domain.patrocinio import hoy_en_argentina
 
 if TYPE_CHECKING:
     from alquilometro_api.models.foto_publicacion import FotoPublicacion
@@ -118,6 +128,15 @@ class Publicacion(Base):
         nullable=True,
     )
     patrocinada: Mapped[bool] = mapped_column(Boolean, default=False)
+    patrocinio_desde: Mapped[date | None] = mapped_column(Date)
+    patrocinio_hasta: Mapped[date | None] = mapped_column(Date)
+    patrocinio_referencia: Mapped[str | None] = mapped_column(String(100))
+    patrocinio_pendiente: Mapped[bool] = mapped_column(
+        Boolean, server_default=false()
+    )
+    patrocinio_vencimiento_visto: Mapped[bool] = mapped_column(
+        Boolean, server_default=false()
+    )
     fuente: Mapped[str | None] = mapped_column(String(100), nullable=True)
     whatsapp: Mapped[str | None] = mapped_column(String(16))
     descripcion: Mapped[str | None] = mapped_column(String(1200))
@@ -134,6 +153,16 @@ class Publicacion(Base):
         lazy='selectin',
         order_by='FotoPublicacion.id',
     )
+
+    @property
+    def patrocinio_activo(self) -> bool:
+        if not self.patrocinada or self.patrocinio_desde is None:
+            return bool(self.patrocinada)
+        hoy = hoy_en_argentina()
+        return (
+            self.patrocinio_hasta is not None
+            and self.patrocinio_desde <= hoy <= self.patrocinio_hasta
+        )
 
     @property
     def titulo_visible(self) -> str:

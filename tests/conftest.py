@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -24,7 +25,11 @@ def cerrar_engine_cacheado() -> None:
 
 
 @pytest.fixture(autouse=True)
-def limpiar_caches() -> Iterator[None]:
+def limpiar_caches(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> Iterator[None]:
+    monkeypatch.setenv('CARPETA_FOTOS', str(tmp_path / 'fotos-prueba'))
+    monkeypatch.setenv('FOTOS_ELIMINAR_HUERFANAS', 'false')
     cerrar_engine_cacheado()
     get_config.cache_clear()
 
