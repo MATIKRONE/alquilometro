@@ -104,22 +104,16 @@ def proyectar(  # noqa: PLR0913, PLR0917
     meses_periodicidad: int,
     ingreso: Dinero | None,
 ) -> list[MesProyectado]:
-    """Alquiler y costo mensual en los meses 12 y 24 del contrato.
-
-    El mes N es el N-ésimo que se paga: ya pasaron N - 1 meses desde el
-    inicio, y se aplicaron los ajustes vencidos hasta ese momento.
-    """
+    """Costo mensual al cumplirse 12 y 24 meses, con el ajuste de ese día."""
     proyectados = []
     for mes in MESES_PROYECTADOS:
-        transcurridos = mes - 1
-        if transcurridos < meses_periodicidad:
+        if mes < meses_periodicidad:
             alquiler = alquiler_inicial.redondear()
             ajustes = 0
             formula = 'Todavía no corresponde ningún ajuste.'
         else:
-            # El índice se toma del mes en que vence el último período, no
-            # del mes que se está pagando.
-            vencido = transcurridos // meses_periodicidad * meses_periodicidad
+            # Se usa la fecha del último ajuste vigente al horizonte elegido.
+            vencido = mes // meses_periodicidad * meses_periodicidad
             resultado = mecanismo.ajustar(
                 alquiler_inicial,
                 fecha_inicio,
@@ -141,6 +135,19 @@ def proyectar(  # noqa: PLR0913, PLR0917
             )
         )
     return proyectados
+
+
+def mes_actual(
+    alquiler: Dinero, costo: Dinero, ingreso: Dinero | None
+) -> MesProyectado:
+    return MesProyectado(
+        mes=0,
+        ajustes_aplicados=0,
+        alquiler=alquiler,
+        costo_mensual=costo,
+        porcentaje_ingreso=_porcentaje(costo, ingreso),
+        formula='Alquiler publicado más los gastos mensuales informados.',
+    )
 
 
 def _porcentaje(costo: Dinero, ingreso: Dinero | None) -> Decimal | None:

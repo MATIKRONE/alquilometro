@@ -1,52 +1,50 @@
 # Alquilómetro Web
 
-La página consume la API real del TP. La entrada web sirve la interfaz en
-`/`, conecta las consultas de la página en `/api/` y conserva Swagger en
-`/docs`. La lógica, los datos de ejemplo y los permisos siguen en la API.
+La entrada web sirve la interfaz en /, conecta sus consultas en /api/ y
+deja Swagger en /docs. El catálogo de demostración incluye los avisos,
+sus fotos, sus estados y los perfiles de los anunciantes.
 
-## Desplegar en Render
+## Probar el catálogo de demostración
 
-1. Elegí **New → Blueprint**, conectá `MATIKRONE/alquilometro-api` y elegí
-   la rama `main`.
-2. En **Blueprint Path**, ingresá `frontend/render.yaml`.
-3. Confirmá que Render muestra el servicio `alquilometro-tp-web` con plan
-   **Free** y desplegalo.
-4. Cuando esté **Live**, abrí la URL pública para ver la página o agregale
-   `/docs` para probar Swagger.
-
-El Blueprint de la raíz sigue disponible para el despliegue de la API por
-separado. El servicio de la demo usa SQLite en el disco temporal de Render.
-Los datos de ejemplo vuelven a cargarse al arrancar.
-
-## Probar en local
-
-Desde la raíz del repo con las dependencias instaladas:
+Desde la raíz del repo, con las dependencias instaladas:
 
 ```powershell
-poetry run python -m alquilometro_api.semilla
+poetry run python -m frontend.cargar_demo
 poetry run uvicorn frontend.web:app --port 4173
 ```
 
-Abrí `http://127.0.0.1:4173/`.
+Abrí http://127.0.0.1:4173/.
 
-### PostgreSQL local en Windows
+## Acceso de Krone Inmobiliaria
 
-En la PC donde se instaló PostgreSQL portátil para Alquilómetro, iniciá la
-base antes de levantar la página si todavía no está corriendo:
+El perfil y su catálogo se cargan aunque no se configure un acceso.
+Para habilitar el inicio de sesión, definí estas dos variables de entorno
+antes de ejecutar la carga:
 
-```powershell
-$pg = Join-Path $env:LOCALAPPDATA 'Alquilometro\PostgreSQL'
-& "$pg\pgsql\bin\pg_ctl.exe" -D "$pg\datos" status
-# Si el estado indica que PostgreSQL está detenido:
-& "$pg\pgsql\bin\pg_ctl.exe" -D "$pg\datos" -l "$pg\postgresql.log" -w start
-```
+- DEMO_KRONE_EMAIL — correo que querés usar para la cuenta de demostración.
+- DEMO_KRONE_PASSWORD — contraseña para el despliegue.
 
-El archivo local `.env` indica qué base y carpeta de fotos usa la página.
-Para volver a probar con SQLite, podés usar estas variables en otra ventana
-de PowerShell y abrir la página en el puerto 4174:
+La cuenta nueva tiene un abono de prueba de 30 días. Si ya se creó el
+perfil sin acceso, la primera carga con ambas variables le asigna acceso
+y conserva sus avisos. El correo y la contraseña se configuran en el
+entorno del servicio. Para habilitar los botones de WhatsApp en los
+avisos de ejemplo que tienen contacto, definí DEMO_WHATSAPP con un número
+de contacto autorizado en formato internacional.
 
-```powershell
-$env:DATABASE_URL = 'sqlite:///./alquilometro.db'
-$env:CARPETA_FOTOS = 'fotos'
-poetry run uvicorn frontend.web:app --port 4174
-```
+El catálogo usa ubicaciones aproximadas y no contiene la base de datos
+local, contraseñas, hashes ni registros de pagos.
+
+## Desplegar en Render
+
+Conectá MATIKRONE/alquilometro y la rama main. Usá frontend/render.yaml
+como Blueprint Path. Render levanta la web con el catálogo incluido.
+En Environment del servicio podés cargar las variables de acceso. El
+plan gratuito usa SQLite y almacenamiento temporal para las fotos. El
+catálogo de demostración se precarga al arrancar. El Blueprint de la
+raíz mantiene el despliegue de la API por separado.
+
+## PostgreSQL local
+
+Para trabajar con tu propia base PostgreSQL, configurá DATABASE_URL y
+CARPETA_FOTOS en tu entorno local o en .env. Iniciá el servidor PostgreSQL
+y ejecutá solo Uvicorn para conservar los registros que ya tenés.

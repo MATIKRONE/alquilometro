@@ -30,6 +30,7 @@ def limpiar_caches(
 ) -> Iterator[None]:
     monkeypatch.setenv('CARPETA_FOTOS', str(tmp_path / 'fotos-prueba'))
     monkeypatch.setenv('FOTOS_ELIMINAR_HUERFANAS', 'false')
+    monkeypatch.setenv('INDICES_ACTUALIZACION_AUTOMATICA', 'false')
     cerrar_engine_cacheado()
     get_config.cache_clear()
 

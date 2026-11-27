@@ -267,6 +267,42 @@ def test_listar_publicaciones_filtradas_por_costo_real(
     ]
 
 
+def test_presupuesto_de_entrada_exige_costos_completos(
+    cliente: TestClient,
+    headers_inmobiliaria: dict[str, str],
+) -> None:
+    cero = {'monto': '0', 'moneda': 'ARS'}
+    base = datos_publicacion() | {'deposito': cero, 'comision': cero}
+    variantes = [
+        base,
+        base | {'deposito': None},
+        base | {'deposito': {'monto': '200000', 'moneda': 'ARS'}},
+        base | {'deposito': {'monto': '100', 'moneda': 'USD'}},
+    ]
+    for datos in variantes:
+        respuesta = crear_publicacion(cliente, headers_inmobiliaria, datos)
+        assert respuesta.status_code == HTTPStatus.CREATED
+
+    sin_filtro = cliente.get('/publicaciones').json()
+    por_id = {aviso['id']: aviso for aviso in sin_filtro}
+    assert por_id[1]['costo_mensual']['total']['monto'] == '754500.00'
+    assert por_id[1]['costo_entrada'] == {
+        'total': {'monto': '830000.00', 'moneda': 'ARS'}, 'faltantes': [],
+    }
+    assert por_id[2]['costo_entrada']['faltantes'] == ['deposito']
+    assert por_id[4]['costo_entrada'] is None
+
+    params = {
+        'costo_entrada_max': '830000', 'moneda': 'ARS', 'zona': 'Caballito',
+    }
+    filtradas = cliente.get('/publicaciones', params=params)
+    assert filtradas.status_code == HTTPStatus.OK
+    assert [aviso['id'] for aviso in filtradas.json()] == [1]
+    assert cliente.get(
+        '/publicaciones', params=params | {'operacion': 'venta'}
+    ).status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+
+
 def test_listar_publicaciones_ordenadas_por_alquiler_descendente(
     cliente: TestClient,
     headers_inmobiliaria: dict[str, str],

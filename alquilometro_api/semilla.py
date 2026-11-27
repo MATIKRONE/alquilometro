@@ -66,6 +66,8 @@ FUENTE_SEMILLA = 'semilla'
 def cargar_icl_de_ejemplo(sesion: Session) -> int:
     """Carga 24 meses de ICL de ejemplo y devuelve cuántos valores cargó."""
     indices = RepositorioIndicesDB(sesion)
+    if indices.fuente_oficial('ICL'):
+        return 0
     for mes in range(MESES_DE_SERIE):
         valor = (VALOR_INICIAL * VARIACION_MENSUAL**mes).quantize(
             Decimal('0.01')
@@ -77,6 +79,8 @@ def cargar_icl_de_ejemplo(sesion: Session) -> int:
 def cargar_ipc_de_ejemplo(sesion: Session) -> int:
     """Carga el IPC como nivel (base dic-2023 = 100) desde las variaciones."""
     indices = RepositorioIndicesDB(sesion)
+    if indices.fuente_oficial('IPC'):
+        return 0
     nivel = VALOR_INICIAL
     for mes, variacion in enumerate(IPC_VARIACIONES):
         nivel = (nivel * (1 + variacion / 100)).quantize(Decimal('0.01'))

@@ -45,7 +45,7 @@ def proyectar_publicacion(
     sesion: Session = Depends(get_session),
     usuario: Usuario = Depends(usuario_actual),
 ) -> Proyeccion:
-    """Cuánto se pagaría en los meses 12 y 24, y qué parte del ingreso es."""
+    """Costo al cumplirse 12 y 24 meses, con los ajustes de esas fechas."""
     publicacion = ServicioPublicaciones(sesion).obtener(publicacion_id)
     return ServicioProyecciones(sesion).proyectar(
         publicacion,

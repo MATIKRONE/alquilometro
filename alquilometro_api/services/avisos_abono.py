@@ -1,8 +1,6 @@
 import logging
 from datetime import date, timedelta
-from email.message import EmailMessage
-from smtplib import SMTP_SSL, SMTPException
-from ssl import create_default_context
+from smtplib import SMTPException
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -14,6 +12,7 @@ from alquilometro_api.domain.patrocinio import hoy_en_argentina
 from alquilometro_api.domain.rol import Rol
 from alquilometro_api.models.pago import AvisoAbonoEnviado
 from alquilometro_api.models.usuario import Usuario
+from alquilometro_api.services.correo import correo_configurado, enviar_correo
 
 logger = logging.getLogger(__name__)
 ANTICIPACION = timedelta(days=3)
@@ -50,34 +49,18 @@ def enviar_aviso(
         'ocultos': f'Tus avisos están ocultos desde el {dia}.',
         'por_eliminar': f'Sin renovación, se eliminarán desde el {dia}.',
     }[tipo]
-    correo = EmailMessage()
-    correo['From'] = config.avisos_email_desde
-    correo['To'] = destinatario
-    correo['Subject'] = 'Alquilómetro · ' + asunto
     url = str(config.avisos_url_publica).rstrip('/') + '/#planes'
-    correo.set_content(f'{texto}\n\nPara revisar tu abono entrá a {url}\n')
-    with SMTP_SSL(
-        config.avisos_smtp_host,
-        465,
-        timeout=8,
-        context=create_default_context(),
-    ) as servidor:
-        servidor.login(
-            config.avisos_smtp_usuario,
-            config.avisos_smtp_clave.get_secret_value(),
-        )
-        servidor.send_message(correo)
+    enviar_correo(
+        config,
+        destinatario,
+        'Alquilómetro · ' + asunto,
+        f'{texto}\n\nPara revisar tu abono entrá a {url}\n',
+    )
 
 
 def enviar_avisos_de_abono() -> None:
     config = get_config()
-    if config.planes_modo_prueba or not (
-        config.avisos_smtp_host
-        and config.avisos_smtp_usuario
-        and config.avisos_smtp_clave.get_secret_value()
-        and config.avisos_email_desde
-        and config.avisos_url_publica
-    ):
+    if config.planes_modo_prueba or not correo_configurado(config):
         return
     hoy = hoy_en_argentina()
     with Session(get_engine()) as sesion:

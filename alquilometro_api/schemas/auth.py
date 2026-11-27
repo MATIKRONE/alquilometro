@@ -56,6 +56,15 @@ class LoginEntrada(BaseModel):
     password: str = Field(min_length=1)
 
 
+class RecuperacionEntrada(BaseModel):
+    email: str = Field(max_length=255, pattern=r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+
+
+class RestablecerPasswordEntrada(BaseModel):
+    token: str = Field(pattern=r'^[A-Za-z0-9_-]{43}$')
+    password: str = Field(min_length=8, max_length=128)
+
+
 class TokenRespuesta(BaseModel):
     """Token que se entrega después de un login correcto."""
 

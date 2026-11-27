@@ -17,7 +17,7 @@ La regla de oro del módulo
 --------------------------
 El ajuste por índice se calcula SIEMPRE contra el monto base:
 
-    monto_base × (índice del mes de ajuste ÷ índice del mes de inicio)
+    monto_base × (índice al ajuste ÷ índice al inicio)
 
 y nunca encadenando un ajuste sobre el monto ya ajustado. El
 encadenamiento es un error frecuente que termina cobrándole de más al
@@ -264,7 +264,7 @@ def normalizar_serie(serie: str) -> str:
 
 
 def primer_dia_del_mes(momento: date) -> date:
-    """Los índices son mensuales: toda fecha cae al 1 de su mes."""
+    """Identifica el período de una serie mensual."""
     return date(momento.year, momento.month, 1)
 
 

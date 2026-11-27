@@ -32,6 +32,7 @@ from alquilometro_api.schemas.publicacion import (
     FotoPublicacionRespuesta,
     GastosPublicacionActualizar,
     PrecioPublicacionActualizar,
+    PublicacionCatalogoRespuesta,
     PublicacionCrear,
     PublicacionEdicionRespuesta,
     PublicacionGestionRespuesta,
@@ -66,14 +67,17 @@ def crear_publicacion(
     return servicio.crear(datos, publicador)
 
 
-@router.get('', response_model=list[PublicacionRespuesta])
+@router.get('', response_model=list[PublicacionCatalogoRespuesta])
 def listar_publicaciones(
     consulta: Annotated[FiltrosPublicacionesConsulta, Query()],
     sesion: Session = Depends(get_session),
-) -> list[Publicacion]:
+) -> list[PublicacionCatalogoRespuesta]:
     filtros = FiltrosPublicaciones(**consulta.model_dump())
     servicio = ServicioPublicaciones(sesion)
-    return servicio.listar(filtros)
+    return [
+        PublicacionCatalogoRespuesta.desde_publicacion(aviso)
+        for aviso in servicio.listar(filtros)
+    ]
 
 
 @router.get('/mis', response_model=list[PublicacionGestionRespuesta])

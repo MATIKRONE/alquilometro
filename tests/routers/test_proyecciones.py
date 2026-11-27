@@ -71,6 +71,7 @@ def test_proyeccion_por_indice_con_el_promedio_historico(
 
     respuesta = cliente.get(
         f'/publicaciones/{publicacion_id}/proyeccion',
+        params={'meses_periodicidad': 6},
         headers=headers_inquilino,
     )
 
@@ -82,7 +83,14 @@ def test_proyeccion_por_indice_con_el_promedio_historico(
     assert Decimal(proyeccion['escenario']['tasa_mensual_porcentual']) == (
         Decimal('2.50')
     )
+    actual = proyeccion['hoy']
+    assert actual['mes'] == 0
+    assert actual['ajustes_aplicados'] == 0
+    assert Decimal(actual['alquiler']['monto']) == Decimal('500000')
+    assert Decimal(actual['costo_mensual']['monto']) == Decimal('580000')
+    assert Decimal(actual['porcentaje_ingreso']) == Decimal('29.00')
     assert [m['mes'] for m in proyeccion['meses']] == MESES
+    assert [m['ajustes_aplicados'] for m in proyeccion['meses']] == [2, 4]
     assert proyeccion['meses'][0]['porcentaje_ingreso'] is not None
     assert 'abl' in proyeccion['faltantes']
 

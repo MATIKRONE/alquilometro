@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import timedelta
 from http import HTTPStatus
 
@@ -9,6 +10,7 @@ from sqlalchemy.orm import Session
 from alquilometro_api.core.database import get_engine
 from alquilometro_api.core.tokens import crear_token
 from alquilometro_api.models.usuario import Usuario
+from alquilometro_api.routers import auth
 
 
 def datos_registro() -> dict[str, str]:
@@ -22,6 +24,55 @@ def datos_registro() -> dict[str, str]:
 # --- A8: casos de error --------------------------------------------------
 
 CLAVE = 'clave-segura-123'  # noqa: S105
+
+
+def test_recuperacion_invalida_enlace_y_sesiones(
+    cliente: TestClient,
+    autenticar: Callable[..., dict[str, str]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    email = 'recuperacion@example.com'
+    vieja_sesion = autenticar(email)
+    enviados: list[str] = []
+    monkeypatch.setattr(auth, 'correo_configurado', lambda _: True)
+    monkeypatch.setattr(
+        auth,
+        'enviar_recuperacion',
+        lambda _, __, token: enviados.append(token),
+    )
+    ruta = '/auth/recuperar'
+    respuesta = cliente.post(ruta, json={'email': email})
+    assert respuesta.status_code == HTTPStatus.ACCEPTED
+    assert (
+        respuesta.json()
+        == cliente.post(
+            ruta,
+            json={'email': 'inexistente@example.com'},
+        ).json()
+    )
+    cliente.post(ruta, json={'email': email})
+    [token] = enviados
+    nueva = 'mi-clave-nueva-456'  # noqa: S105
+    datos = {'token': token, 'password': nueva}
+    recuperar = '/auth/restablecer'
+    assert (
+        cliente.post(recuperar, json=datos).status_code
+        == HTTPStatus.NO_CONTENT
+    )
+    assert (
+        cliente.post(recuperar, json=datos).status_code
+        == HTTPStatus.UNPROCESSABLE_ENTITY
+    )
+    assert (
+        cliente.get('/usuarios/me', headers=vieja_sesion).status_code
+        == HTTPStatus.UNAUTHORIZED
+    )
+    assert (
+        cliente.post(
+            '/auth/login', json={'email': email, 'password': nueva}
+        ).status_code
+        == HTTPStatus.OK
+    )
 
 
 def test_registro_pide_que_coincidan_las_claves_enviadas(

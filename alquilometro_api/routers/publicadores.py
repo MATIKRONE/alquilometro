@@ -21,9 +21,8 @@ from alquilometro_api.models.perfil_publicador import (
     CalificacionPublicador,
     FotoPerfilPublicador,
 )
-from alquilometro_api.models.publicacion import Publicacion
 from alquilometro_api.models.usuario import Usuario
-from alquilometro_api.schemas.publicacion import PublicacionRespuesta
+from alquilometro_api.schemas.publicacion import PublicacionCatalogoRespuesta
 from alquilometro_api.services.fotos import leer_foto
 from alquilometro_api.services.publicaciones import (
     FiltrosPublicaciones,
@@ -85,15 +84,20 @@ def ver_perfil(
 
 
 @router.get(
-    '/{publicador_id}/publicaciones', response_model=list[PublicacionRespuesta]
+    '/{publicador_id}/publicaciones',
+    response_model=list[PublicacionCatalogoRespuesta],
 )
 def ver_publicaciones(
     publicador: Publicador,
     sesion: Sesion,
-) -> list[Publicacion]:
-    return ServicioPublicaciones(sesion).listar(
+) -> list[PublicacionCatalogoRespuesta]:
+    avisos = ServicioPublicaciones(sesion).listar(
         FiltrosPublicaciones(publicador_id=publicador.id),
     )
+    return [
+        PublicacionCatalogoRespuesta.desde_publicacion(aviso)
+        for aviso in avisos
+    ]
 
 
 @router.get('/{publicador_id}/foto')

@@ -10,10 +10,10 @@
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css"
     integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="anonymous">
-  <link rel="stylesheet" href="./style.css?v=patrocinados-portada">
+  <link rel="stylesheet" href="./style.css?v=presupuesto-de-entrada">
   <script defer src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"
     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="anonymous"></script>
-  <script type="module" src="./app.js?v=destacados"></script>
+  <script type="module" src="./app.js?v=presupuesto-en-buscador"></script>
 </head>
 <body>
   <header class="top"><div class="wrap top-inner">
@@ -118,6 +118,10 @@
       <button type="button" class="gallery-control" data-gallery-step="-1" aria-label="Foto anterior">←</button>
       <div class="gallery-photo"><img id="gallery-image" alt="" draggable="false"></div>
       <button type="button" class="gallery-control" data-gallery-step="1" aria-label="Foto siguiente">→</button>
+    </div>
+    <div class="gallery-touch-zoom" role="group" aria-label="Zoom de la foto">
+      <button class="gallery-control" type="button" data-gallery-zoom="out" aria-label="Alejar foto">−</button>
+      <button class="gallery-control" type="button" data-gallery-zoom="in" aria-label="Acercar foto">+</button>
     </div>
     <div id="gallery-thumbs" class="gallery-thumbs" role="group" aria-label="Elegir foto"></div>
   </dialog>

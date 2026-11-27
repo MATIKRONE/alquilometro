@@ -36,6 +36,8 @@ class ProyeccionRespuesta(BaseModel):
     meses_periodicidad: int
     serie: str | None
     fecha_referencia: date | None
+    fuente_indice: str | None
     escenario: EscenarioRespuesta | None
+    hoy: MesProyectadoRespuesta
     meses: list[MesProyectadoRespuesta]
     faltantes: list[str]

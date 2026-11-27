@@ -8,8 +8,10 @@ from fastapi.responses import JSONResponse
 
 import alquilometro_api.models  # noqa: F401
 from alquilometro_api.core.archivos_fotos import revisar_fotos_huerfanas
+from alquilometro_api.core.config import get_config
 from alquilometro_api.core.database import crear_tablas
 from alquilometro_api.domain.errores import ErrorDominio
+from alquilometro_api.routers.actividad import router as actividad_router
 from alquilometro_api.routers.admin import router as admin_router
 from alquilometro_api.routers.auth import router as auth_router
 from alquilometro_api.routers.contratos import router as contratos_router
@@ -24,6 +26,9 @@ from alquilometro_api.routers.publicaciones import (
 from alquilometro_api.routers.publicadores import router as publicadores_router
 from alquilometro_api.routers.usuarios import router as usuarios_router
 from alquilometro_api.services.avisos_abono import enviar_avisos_de_abono
+from alquilometro_api.services.indices_oficiales import (
+    actualizar_periodicamente,
+)
 from alquilometro_api.services.retencion_avisos import aplicar_retencion_avisos
 
 logger = logging.getLogger(__name__)
@@ -54,13 +59,21 @@ async def controlar_retencion() -> None:
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     crear_tablas()
     await revisar_retencion()
-    tarea = asyncio.create_task(controlar_retencion())
+    tareas = [asyncio.create_task(controlar_retencion())]
+    config = get_config()
+    if config.indices_actualizacion_automatica:
+        tareas.append(
+            asyncio.create_task(
+                actualizar_periodicamente(config.indices_intervalo_horas)
+            )
+        )
     try:
         yield
     finally:
-        tarea.cancel()
+        for tarea in tareas:
+            tarea.cancel()
         with suppress(asyncio.CancelledError):
-            await tarea
+            await asyncio.gather(*tareas)
 
 
 app = FastAPI(
@@ -84,6 +97,7 @@ def manejar_error_dominio(
 
 
 app.include_router(auth_router)
+app.include_router(actividad_router)
 app.include_router(admin_router)
 app.include_router(publicaciones_router)
 app.include_router(publicadores_router)

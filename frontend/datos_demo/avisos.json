@@ -3,12 +3,12 @@
     "publicador": 3,
     "aviso": {
       "propiedad": {
+        "direccion": "Villa Devoto (ubicación aproximada)",
         "zona": "Villa Devoto",
         "tipo": "departamento",
         "ambientes": 2,
         "metros_cuadrados": "46.00",
-        "permite_mascotas": true,
-        "direccion": "Zona Villa Devoto"
+        "permite_mascotas": true
       },
       "operacion": "alquiler",
       "precio_alquiler": {
@@ -51,26 +51,30 @@
       "descripcion": "Departamento de dos ambientes en Villa Devoto. El living comedor ofrece espacio para un sillón y una mesa, y el dormitorio independiente permite separar el descanso de la zona de estar.\n\nSe aceptan mascotas. La garantía es por seguro de caución. Para consultar disponibilidad o coordinar una visita, podés contactar a la inmobiliaria desde el aviso.",
       "titulo": "Departamento de ejemplo 01"
     },
+    "estado": "activa",
+    "creada_us": null,
+    "disponibilidad_confirmada": null,
+    "tiene_whatsapp": true,
     "ubicacion": {
       "latitud_aproximada": null,
       "longitud_aproximada": null
     },
     "fotos": [
-      "95bc830a4f1eef4dd9bc5316d16e046b.webp",
-      "44720c8c0c31b2ac14af81ac2025d39a.webp",
-      "8b30f540a21cdb4b700de6b06ee8d924.webp"
+      "f80bae58de1a48e0b6952a2caccf2fbe.jpg",
+      "6428227f8c8f4e099158366a7173a6d0.jpg",
+      "fd05e5e2a3314c3997a51043dfa01e7d.jpg"
     ]
   },
   {
     "publicador": 4,
     "aviso": {
       "propiedad": {
+        "direccion": "Villa Urquiza (ubicación aproximada)",
         "zona": "Villa Urquiza",
         "tipo": "departamento",
         "ambientes": 3,
         "metros_cuadrados": "68.00",
-        "permite_mascotas": null,
-        "direccion": "Zona Villa Urquiza"
+        "permite_mascotas": null
       },
       "operacion": "alquiler",
       "precio_alquiler": {
@@ -98,26 +102,30 @@
       "descripcion": null,
       "titulo": "Departamento de ejemplo 02"
     },
+    "estado": "activa",
+    "creada_us": null,
+    "disponibilidad_confirmada": null,
+    "tiene_whatsapp": true,
     "ubicacion": {
       "latitud_aproximada": null,
       "longitud_aproximada": null
     },
     "fotos": [
-      "f4c4ca91e089862443f9e425465a8f95.webp",
-      "e44433950bf6d2d11b517e8788b6dea9.webp",
-      "a517273696d5f6156de29c20de2d0718.webp"
+      "32297ffb5d4b421f8d2b678b38160219.jpg",
+      "c50b5bf20ed340e097147e01f7ae00a8.jpg",
+      "4c40be75715b4ee69083c603f30bb89e.jpg"
     ]
   },
   {
     "publicador": 5,
     "aviso": {
       "propiedad": {
+        "direccion": "Belgrano R (ubicación aproximada)",
         "zona": "Belgrano R",
         "tipo": "departamento",
         "ambientes": 1,
         "metros_cuadrados": "35.00",
-        "permite_mascotas": null,
-        "direccion": "Zona Belgrano R"
+        "permite_mascotas": null
       },
       "operacion": "alquiler",
       "precio_alquiler": {
@@ -145,26 +153,30 @@
       "descripcion": null,
       "titulo": "Departamento de ejemplo 03"
     },
+    "estado": "activa",
+    "creada_us": null,
+    "disponibilidad_confirmada": null,
+    "tiene_whatsapp": true,
     "ubicacion": {
       "latitud_aproximada": null,
       "longitud_aproximada": null
     },
     "fotos": [
-      "cb06cbc547fab31fcaf9093b9bb91e44.webp",
-      "42b3a55ffaaee0319e4f3d9a37bd5342.webp",
-      "8f25b0d97ebcfc29d04d25667ed31bd3.webp"
+      "1668b2798b6a4110b992a9234207ec63.jpg",
+      "f34e81c4f3af413da7ff072a08f68ac9.jpg",
+      "01f1e21bad5a48bb856be9508e08627c.jpg"
     ]
   },
   {
     "publicador": 5,
     "aviso": {
       "propiedad": {
+        "direccion": "Belgrano (ubicación aproximada)",
         "zona": "Belgrano",
         "tipo": "departamento",
         "ambientes": 1,
         "metros_cuadrados": "32.00",
-        "permite_mascotas": true,
-        "direccion": "Zona Belgrano"
+        "permite_mascotas": true
       },
       "operacion": "alquiler",
       "precio_alquiler": {
@@ -192,26 +204,30 @@
       "descripcion": null,
       "titulo": "Departamento de ejemplo 04"
     },
+    "estado": "activa",
+    "creada_us": null,
+    "disponibilidad_confirmada": null,
+    "tiene_whatsapp": true,
     "ubicacion": {
       "latitud_aproximada": null,
       "longitud_aproximada": null
     },
     "fotos": [
-      "2a27a1b1c778ca0ac488c8b8ad4e12c7.webp",
-      "97efa0ec9da744924d3e0a7e51f6f430.webp",
-      "ac80ba7422abc70a7678fa009944fdc1.webp"
+      "3b4cd67d484c4a74961d30a6fe971611.jpg",
+      "572ea6682e4e4345bf69c72f8fe592dd.jpg",
+      "e1c6095b72f54e78b23d971c7210db6d.jpg"
     ]
   },
   {
     "publicador": 6,
     "aviso": {
       "propiedad": {
+        "direccion": "Núñez (ubicación aproximada)",
         "zona": "Núñez",
         "tipo": "departamento",
         "ambientes": 3,
         "metros_cuadrados": "74.00",
-        "permite_mascotas": false,
-        "direccion": "Zona Núñez"
+        "permite_mascotas": false
       },
       "operacion": "alquiler",
       "precio_alquiler": {
@@ -239,26 +255,30 @@
       "descripcion": null,
       "titulo": "Departamento de ejemplo 05"
     },
+    "estado": "activa",
+    "creada_us": null,
+    "disponibilidad_confirmada": null,
+    "tiene_whatsapp": true,
     "ubicacion": {
       "latitud_aproximada": null,
       "longitud_aproximada": null
     },
     "fotos": [
-      "f18e4b0db4febb3763dc2fe0d081309a.webp",
-      "d9530bc2daeb21d304be22b3b798cf0c.webp",
-      "1328a73525af80a13db9ff717831c951.webp"
+      "45681798a1a84ebb91e192b302414b04.jpg",
+      "f6b9f53575f746e99c3c0a299e681be2.jpg",
+      "7aaf0586c3de406abb3ef28adefbcc1f.jpg"
     ]
   },
   {
     "publicador": 3,
     "aviso": {
       "propiedad": {
+        "direccion": "Villa Devoto (ubicación aproximada)",
         "zona": "Villa Devoto",
         "tipo": "departamento",
         "ambientes": 2,
         "metros_cuadrados": "51.00",
-        "permite_mascotas": true,
-        "direccion": "Zona Villa Devoto"
+        "permite_mascotas": true
       },
       "operacion": "alquiler",
       "precio_alquiler": {
@@ -286,26 +306,30 @@
       "descripcion": null,
       "titulo": "Departamento de ejemplo 06"
     },
+    "estado": "activa",
+    "creada_us": null,
+    "disponibilidad_confirmada": null,
+    "tiene_whatsapp": true,
     "ubicacion": {
       "latitud_aproximada": null,
       "longitud_aproximada": null
     },
     "fotos": [
-      "2ea7e9baac1f6067e9e39e13d4d332c1.webp",
-      "bd49b5c866e6b4b335c3e8de872aee65.webp",
-      "2976c84b6881b45ccbfea06a187f2c45.webp"
+      "45619ae5bdc04c589e15f4e5b3694923.jpg",
+      "69a6447d848440b5be2a45e2caa392ce.jpg",
+      "265da180a70747b48b2d02a982d48a72.jpg"
     ]
   },
   {
     "publicador": 4,
     "aviso": {
       "propiedad": {
+        "direccion": "Villa Urquiza (ubicación aproximada)",
         "zona": "Villa Urquiza",
         "tipo": "departamento",
         "ambientes": 1,
         "metros_cuadrados": "34.00",
-        "permite_mascotas": false,
-        "direccion": "Zona Villa Urquiza"
+        "permite_mascotas": false
       },
       "operacion": "alquiler",
       "precio_alquiler": {
@@ -333,26 +357,30 @@
       "descripcion": null,
       "titulo": "Departamento de ejemplo 07"
     },
+    "estado": "activa",
+    "creada_us": null,
+    "disponibilidad_confirmada": null,
+    "tiene_whatsapp": true,
     "ubicacion": {
       "latitud_aproximada": null,
       "longitud_aproximada": null
     },
     "fotos": [
-      "1585b19f727254269b520cf02c6d785b.webp",
-      "4612070b39dd70a983d27a2c7dc1eac5.webp",
-      "6a97d5511b01d89c6f724414a4d8eda3.webp"
+      "0bc2e148045e40f2b91df0cb3ba9bb36.jpg",
+      "6df718026fc740a89cbfe929118fd313.jpg",
+      "9ae2f3b5e00c4c6c8b9f6f9370683fc1.jpg"
     ]
   },
   {
     "publicador": 5,
     "aviso": {
       "propiedad": {
+        "direccion": "Belgrano R (ubicación aproximada)",
         "zona": "Belgrano R",
         "tipo": "departamento",
         "ambientes": 2,
         "metros_cuadrados": "44.00",
-        "permite_mascotas": true,
-        "direccion": "Zona Belgrano R"
+        "permite_mascotas": true
       },
       "operacion": "alquiler",
       "precio_alquiler": {
@@ -380,26 +408,30 @@
       "descripcion": null,
       "titulo": "Departamento de ejemplo 08"
     },
+    "estado": "activa",
+    "creada_us": null,
+    "disponibilidad_confirmada": null,
+    "tiene_whatsapp": true,
     "ubicacion": {
       "latitud_aproximada": null,
       "longitud_aproximada": null
     },
     "fotos": [
-      "c4bc0135d84578b2339f798813c7e7e1.webp",
-      "afad62474df7b759f3200853306c2ac1.webp",
-      "438c2faa51629b01f5683159afc30ff7.webp"
+      "d1d1d69ea5534026b20b0b8278366c78.jpg",
+      "8cbcea39487a4a21a9be58985705e40d.jpg",
+      "6dd768ccb6f8476ba20ac5b7bad46dfd.jpg"
     ]
   },
   {
     "publicador": 5,
     "aviso": {
       "propiedad": {
+        "direccion": "Belgrano (ubicación aproximada)",
         "zona": "Belgrano",
         "tipo": "departamento",
         "ambientes": 2,
         "metros_cuadrados": "48.00",
-        "permite_mascotas": false,
-        "direccion": "Zona Belgrano"
+        "permite_mascotas": false
       },
       "operacion": "alquiler",
       "precio_alquiler": {
@@ -427,26 +459,30 @@
       "descripcion": null,
       "titulo": "Departamento de ejemplo 09"
     },
+    "estado": "activa",
+    "creada_us": null,
+    "disponibilidad_confirmada": null,
+    "tiene_whatsapp": true,
     "ubicacion": {
       "latitud_aproximada": null,
       "longitud_aproximada": null
     },
     "fotos": [
-      "95a91faede0dee7c17c8af94c9b70c77.webp",
-      "8ad850064c07de8acc623e391904c443.webp",
-      "cb1079c6c52e2e88b55b095fd0074804.webp"
+      "dfe506da15d6425aad0a2a102616a1a8.jpg",
+      "acc6d2400f61429ab9a880e6122428a7.jpg",
+      "afcef1fc85074f7bb53d726efbe0c785.jpg"
     ]
   },
   {
     "publicador": 6,
     "aviso": {
       "propiedad": {
+        "direccion": "Núñez (ubicación aproximada)",
         "zona": "Núñez",
         "tipo": "departamento",
         "ambientes": 3,
         "metros_cuadrados": "70.00",
-        "permite_mascotas": true,
-        "direccion": "Zona Núñez"
+        "permite_mascotas": true
       },
       "operacion": "alquiler",
       "precio_alquiler": {
@@ -474,26 +510,30 @@
       "descripcion": null,
       "titulo": "Departamento de ejemplo 10"
     },
+    "estado": "activa",
+    "creada_us": null,
+    "disponibilidad_confirmada": null,
+    "tiene_whatsapp": true,
     "ubicacion": {
       "latitud_aproximada": null,
       "longitud_aproximada": null
     },
     "fotos": [
-      "ddfa8e32970f8e1a8b488581b35d3d86.webp",
-      "d9fd0baa1cb1d34ee0c73c17d1916bff.webp",
-      "e12c242308e284ed2f4abfc85d563067.webp"
+      "db15d5bbd7ad4f1bac43a3f1118d0943.jpg",
+      "c1a62e380ae24c53ac549baa9e31e5f1.jpg",
+      "bf9d77f9cfb949a696e9aa9d78af0862.jpg"
     ]
   },
   {
     "publicador": 3,
     "aviso": {
       "propiedad": {
+        "direccion": "Villa Devoto (ubicación aproximada)",
         "zona": "Villa Devoto",
         "tipo": "departamento",
         "ambientes": 2,
         "metros_cuadrados": "55.00",
-        "permite_mascotas": true,
-        "direccion": "Zona Villa Devoto"
+        "permite_mascotas": true
       },
       "operacion": "alquiler",
       "precio_alquiler": {
@@ -521,26 +561,30 @@
       "descripcion": null,
       "titulo": "Departamento de ejemplo 11"
     },
+    "estado": "activa",
+    "creada_us": null,
+    "disponibilidad_confirmada": null,
+    "tiene_whatsapp": true,
     "ubicacion": {
       "latitud_aproximada": null,
       "longitud_aproximada": null
     },
     "fotos": [
-      "f3425d473aa905e1065da27b24dff609.webp",
-      "5dde3fba90472c944ebc3bbf09fb3589.webp",
-      "3bdf5c9e3874da7a0a2ae73f50d60671.webp"
+      "15135059ef5d4c7db6c9122c2cd4ebfa.jpg",
+      "530f584afbb3427188009461f46b78cb.jpg",
+      "ee4f38bd04c84d3dae79a7bcb905a47a.jpg"
     ]
   },
   {
     "publicador": 4,
     "aviso": {
       "propiedad": {
+        "direccion": "Villa Urquiza (ubicación aproximada)",
         "zona": "Villa Urquiza",
         "tipo": "departamento",
         "ambientes": 3,
         "metros_cuadrados": "79.00",
-        "permite_mascotas": false,
-        "direccion": "Zona Villa Urquiza"
+        "permite_mascotas": false
       },
       "operacion": "alquiler",
       "precio_alquiler": {
@@ -568,26 +612,30 @@
       "descripcion": null,
       "titulo": "Departamento de ejemplo 12"
     },
+    "estado": "activa",
+    "creada_us": null,
+    "disponibilidad_confirmada": null,
+    "tiene_whatsapp": true,
     "ubicacion": {
       "latitud_aproximada": null,
       "longitud_aproximada": null
     },
     "fotos": [
-      "73602632a448d2c1cbd732ae9a0ffda6.webp",
-      "a3c6a3c3da6c49173d657d3ae8885220.webp",
-      "aa345f2f0f16bb132bddb5f507c952b2.webp"
+      "28d2a47afaed4b46a4f650d17ca2cd27.jpg",
+      "aef2834171244d139331d33b12f67ff6.jpg",
+      "f551045a2ef741cf94dec170f45eb69b.jpg"
     ]
   },
   {
     "publicador": 1,
     "aviso": {
       "propiedad": {
+        "direccion": "Villa Urquiza (ubicación aproximada)",
         "zona": "Villa Urquiza",
         "tipo": "departamento",
         "ambientes": 4,
         "metros_cuadrados": "122.00",
-        "permite_mascotas": true,
-        "direccion": "Zona Villa Urquiza"
+        "permite_mascotas": true
       },
       "operacion": "alquiler",
       "precio_alquiler": {
@@ -622,29 +670,33 @@
       "tasa_ajuste": null,
       "serie_codigo": "ICL",
       "patrocinada": false,
-      "fuente": "demo-render",
+      "fuente": null,
       "whatsapp": null,
       "descripcion": null,
       "titulo": "Departamento de 4 ambientes en Villa Urquiz"
     },
+    "estado": "activa",
+    "creada_us": null,
+    "disponibilidad_confirmada": "2026-11-26",
+    "tiene_whatsapp": true,
     "ubicacion": {
       "latitud_aproximada": -34.573,
       "longitud_aproximada": -58.488
     },
     "fotos": [
-      "6dc1d48e4ee45f646dfb33e7ff6901db.webp"
+      "dc2d71341981422596296b673c9568ac.jpg"
     ]
   },
   {
     "publicador": 3,
     "aviso": {
       "propiedad": {
+        "direccion": "Villa Devoto (ubicación aproximada)",
         "zona": "Villa Devoto",
         "tipo": "departamento",
         "ambientes": 2,
         "metros_cuadrados": "46.00",
-        "permite_mascotas": true,
-        "direccion": "Zona Villa Devoto"
+        "permite_mascotas": true
       },
       "operacion": "venta",
       "precio_alquiler": null,
@@ -669,26 +721,30 @@
       "descripcion": "Living comedor y dormitorio independiente.\n\nAviso ficticio para mostrar el catálogo de ventas de Alquilómetro.",
       "titulo": "Dos ambientes en Villa Devoto"
     },
+    "estado": "activa",
+    "creada_us": null,
+    "disponibilidad_confirmada": null,
+    "tiene_whatsapp": false,
     "ubicacion": {
       "latitud_aproximada": null,
       "longitud_aproximada": null
     },
     "fotos": [
-      "95bc830a4f1eef4dd9bc5316d16e046b.webp",
-      "44720c8c0c31b2ac14af81ac2025d39a.webp",
-      "8b30f540a21cdb4b700de6b06ee8d924.webp"
+      "05f8fa07a26143f4a5eb52a8a25982d3.jpg",
+      "af44e03f67ab42b281bb58951a470d4e.jpg",
+      "568b4407253d4242869605b117b8169f.jpg"
     ]
   },
   {
     "publicador": 4,
     "aviso": {
       "propiedad": {
+        "direccion": "Villa Urquiza (ubicación aproximada)",
         "zona": "Villa Urquiza",
         "tipo": "departamento",
         "ambientes": 3,
         "metros_cuadrados": "68.00",
-        "permite_mascotas": null,
-        "direccion": "Zona Villa Urquiza"
+        "permite_mascotas": null
       },
       "operacion": "venta",
       "precio_alquiler": null,
@@ -713,26 +769,30 @@
       "descripcion": "Tres ambientes distribuidos en 68 m².\n\nAviso ficticio para mostrar el catálogo de ventas de Alquilómetro.",
       "titulo": "Tres ambientes en Villa Urquiza"
     },
+    "estado": "activa",
+    "creada_us": null,
+    "disponibilidad_confirmada": null,
+    "tiene_whatsapp": false,
     "ubicacion": {
       "latitud_aproximada": null,
       "longitud_aproximada": null
     },
     "fotos": [
-      "f4c4ca91e089862443f9e425465a8f95.webp",
-      "e44433950bf6d2d11b517e8788b6dea9.webp",
-      "a517273696d5f6156de29c20de2d0718.webp"
+      "8cbca3c639a5489cb6acdd2eee05c288.jpg",
+      "7ff31afeb3d44e9891d5732f3829951f.jpg",
+      "5593c3b2a6fa4411a5910f1d63355db0.jpg"
     ]
   },
   {
     "publicador": 5,
     "aviso": {
       "propiedad": {
+        "direccion": "Belgrano R (ubicación aproximada)",
         "zona": "Belgrano R",
         "tipo": "departamento",
         "ambientes": 2,
         "metros_cuadrados": "44.00",
-        "permite_mascotas": true,
-        "direccion": "Zona Belgrano R"
+        "permite_mascotas": true
       },
       "operacion": "venta",
       "precio_alquiler": null,
@@ -757,26 +817,30 @@
       "descripcion": "Dos ambientes con 44 m² y dormitorio separado.\n\nAviso ficticio para mostrar el catálogo de ventas de Alquilómetro.",
       "titulo": "Dos ambientes en Belgrano R"
     },
+    "estado": "activa",
+    "creada_us": null,
+    "disponibilidad_confirmada": null,
+    "tiene_whatsapp": false,
     "ubicacion": {
       "latitud_aproximada": null,
       "longitud_aproximada": null
     },
     "fotos": [
-      "c4bc0135d84578b2339f798813c7e7e1.webp",
-      "afad62474df7b759f3200853306c2ac1.webp",
-      "438c2faa51629b01f5683159afc30ff7.webp"
+      "1252675d5453493f8fba6abffbd4c557.jpg",
+      "2ca3ab6738bc46d99fbf32273d62fb32.jpg",
+      "cb1b6c89553b441e87d4d3bd7bf7599f.jpg"
     ]
   },
   {
     "publicador": 1,
     "aviso": {
       "propiedad": {
+        "direccion": "Villa Devoto (ubicación aproximada)",
         "zona": "Villa Devoto",
         "tipo": "departamento",
         "ambientes": 2,
         "metros_cuadrados": "46.00",
-        "permite_mascotas": true,
-        "direccion": "Zona Villa Devoto"
+        "permite_mascotas": true
       },
       "operacion": "alquiler",
       "precio_alquiler": {
@@ -819,26 +883,30 @@
       "descripcion": "Aviso ficticio de Krone Inmobiliaria para probar el panel. 2 ambientes en Villa Devoto. Las fotos son ilustrativas.",
       "titulo": "Departamento luminoso en Villa Devoto · Ejemplo 01"
     },
+    "estado": "activa",
+    "creada_us": null,
+    "disponibilidad_confirmada": "2026-11-26",
+    "tiene_whatsapp": false,
     "ubicacion": {
       "latitud_aproximada": null,
       "longitud_aproximada": null
     },
     "fotos": [
-      "95bc830a4f1eef4dd9bc5316d16e046b.webp",
-      "44720c8c0c31b2ac14af81ac2025d39a.webp",
-      "8b30f540a21cdb4b700de6b06ee8d924.webp"
+      "7c0485775d354aa98dae3f1c75b72395.jpg",
+      "0c551bcc0f9d4cdf8d8b7e68cba096cd.jpg",
+      "0169f83c7fa247ddaf5a8b0d48151521.jpg"
     ]
   },
   {
     "publicador": 1,
     "aviso": {
       "propiedad": {
+        "direccion": "Villa Urquiza (ubicación aproximada)",
         "zona": "Villa Urquiza",
         "tipo": "departamento",
         "ambientes": 3,
         "metros_cuadrados": "68.00",
-        "permite_mascotas": null,
-        "direccion": "Zona Villa Urquiza"
+        "permite_mascotas": null
       },
       "operacion": "alquiler",
       "precio_alquiler": {
@@ -866,26 +934,30 @@
       "descripcion": "Aviso ficticio de Krone Inmobiliaria para probar el panel. 3 ambientes en Villa Urquiza. Las fotos son ilustrativas.",
       "titulo": "Departamento con living amplio en Villa Urquiza · Ejemplo 02"
     },
+    "estado": "activa",
+    "creada_us": null,
+    "disponibilidad_confirmada": "2026-11-26",
+    "tiene_whatsapp": false,
     "ubicacion": {
       "latitud_aproximada": null,
       "longitud_aproximada": null
     },
     "fotos": [
-      "f4c4ca91e089862443f9e425465a8f95.webp",
-      "e44433950bf6d2d11b517e8788b6dea9.webp",
-      "a517273696d5f6156de29c20de2d0718.webp"
+      "fc8156e48a0d43838753b6f763926e7e.jpg",
+      "8f8eb479633a47e28b29b49fc00a9040.jpg",
+      "f660577745fe495fbb4d5c034602ebbe.jpg"
     ]
   },
   {
     "publicador": 1,
     "aviso": {
       "propiedad": {
+        "direccion": "Belgrano R (ubicación aproximada)",
         "zona": "Belgrano R",
         "tipo": "departamento",
         "ambientes": 1,
         "metros_cuadrados": "35.00",
-        "permite_mascotas": null,
-        "direccion": "Zona Belgrano R"
+        "permite_mascotas": null
       },
       "operacion": "alquiler",
       "precio_alquiler": {
@@ -913,26 +985,30 @@
       "descripcion": "Aviso ficticio de Krone Inmobiliaria para probar el panel. 1 ambientes en Belgrano R. Las fotos son ilustrativas.",
       "titulo": "Departamento en Belgrano R · Ejemplo 03"
     },
+    "estado": "activa",
+    "creada_us": null,
+    "disponibilidad_confirmada": "2026-11-26",
+    "tiene_whatsapp": false,
     "ubicacion": {
       "latitud_aproximada": null,
       "longitud_aproximada": null
     },
     "fotos": [
-      "cb06cbc547fab31fcaf9093b9bb91e44.webp",
-      "42b3a55ffaaee0319e4f3d9a37bd5342.webp",
-      "8f25b0d97ebcfc29d04d25667ed31bd3.webp"
+      "03a0a0e3c8be4ab6b5e2c4892a634cdf.jpg",
+      "52b35f2dc85844838efabed24a21ba2e.jpg",
+      "dc73143ffc4c4a83b777a13f04d2d885.jpg"
     ]
   },
   {
     "publicador": 1,
     "aviso": {
       "propiedad": {
+        "direccion": "Belgrano (ubicación aproximada)",
         "zona": "Belgrano",
         "tipo": "departamento",
         "ambientes": 1,
         "metros_cuadrados": "32.00",
-        "permite_mascotas": true,
-        "direccion": "Zona Belgrano"
+        "permite_mascotas": true
       },
       "operacion": "alquiler",
       "precio_alquiler": {
@@ -960,26 +1036,30 @@
       "descripcion": "Aviso ficticio de Krone Inmobiliaria para probar el panel. 1 ambientes en Belgrano. Las fotos son ilustrativas.",
       "titulo": "Departamento en Belgrano · Ejemplo 04"
     },
+    "estado": "activa",
+    "creada_us": null,
+    "disponibilidad_confirmada": "2026-11-26",
+    "tiene_whatsapp": false,
     "ubicacion": {
       "latitud_aproximada": null,
       "longitud_aproximada": null
     },
     "fotos": [
-      "2a27a1b1c778ca0ac488c8b8ad4e12c7.webp",
-      "97efa0ec9da744924d3e0a7e51f6f430.webp",
-      "ac80ba7422abc70a7678fa009944fdc1.webp"
+      "9a55229b36ce470db31c2b7180e510b7.jpg",
+      "5fca08ddeff24cbeb4924a9b44c32ab3.jpg",
+      "b9475f18993045ff99f1687b084e9bdb.jpg"
     ]
   },
   {
     "publicador": 1,
     "aviso": {
       "propiedad": {
+        "direccion": "Núñez (ubicación aproximada)",
         "zona": "Núñez",
         "tipo": "departamento",
         "ambientes": 3,
         "metros_cuadrados": "74.00",
-        "permite_mascotas": false,
-        "direccion": "Zona Núñez"
+        "permite_mascotas": false
       },
       "operacion": "alquiler",
       "precio_alquiler": {
@@ -1007,26 +1087,30 @@
       "descripcion": "Aviso ficticio de Krone Inmobiliaria para probar el panel. 3 ambientes en Núñez. Las fotos son ilustrativas.",
       "titulo": "Departamento luminoso en Núñez · Ejemplo 05"
     },
+    "estado": "activa",
+    "creada_us": null,
+    "disponibilidad_confirmada": "2026-11-26",
+    "tiene_whatsapp": false,
     "ubicacion": {
       "latitud_aproximada": null,
       "longitud_aproximada": null
     },
     "fotos": [
-      "f18e4b0db4febb3763dc2fe0d081309a.webp",
-      "d9530bc2daeb21d304be22b3b798cf0c.webp",
-      "1328a73525af80a13db9ff717831c951.webp"
+      "2a7d5b1059024094923092cacdbb269b.jpg",
+      "1eec044f230b451a9a9a53a120163b0a.jpg",
+      "fa39f3ea9fe64c9b85e743c3d0fbc01d.jpg"
     ]
   },
   {
     "publicador": 1,
     "aviso": {
       "propiedad": {
+        "direccion": "Villa Devoto (ubicación aproximada)",
         "zona": "Villa Devoto",
         "tipo": "departamento",
         "ambientes": 2,
         "metros_cuadrados": "46.00",
-        "permite_mascotas": true,
-        "direccion": "Zona Villa Devoto"
+        "permite_mascotas": true
       },
       "operacion": "venta",
       "precio_alquiler": null,
@@ -1051,26 +1135,30 @@
       "descripcion": "Aviso ficticio de Krone Inmobiliaria para probar el panel. 2 ambientes en Villa Devoto. Las fotos son ilustrativas.",
       "titulo": "Dos ambientes a la venta en Villa Devoto · Ejemplo 06"
     },
+    "estado": "activa",
+    "creada_us": null,
+    "disponibilidad_confirmada": "2026-11-26",
+    "tiene_whatsapp": false,
     "ubicacion": {
       "latitud_aproximada": null,
       "longitud_aproximada": null
     },
     "fotos": [
-      "95bc830a4f1eef4dd9bc5316d16e046b.webp",
-      "44720c8c0c31b2ac14af81ac2025d39a.webp",
-      "8b30f540a21cdb4b700de6b06ee8d924.webp"
+      "4a9b7babb10949819d1230111e8f8974.jpg",
+      "55e2d943f8a245569fc941b47158587b.jpg",
+      "4484d392f81f4838ae510fb69e96103d.jpg"
     ]
   },
   {
     "publicador": 1,
     "aviso": {
       "propiedad": {
+        "direccion": "Villa Urquiza (ubicación aproximada)",
         "zona": "Villa Urquiza",
         "tipo": "departamento",
         "ambientes": 3,
         "metros_cuadrados": "68.00",
-        "permite_mascotas": null,
-        "direccion": "Zona Villa Urquiza"
+        "permite_mascotas": null
       },
       "operacion": "venta",
       "precio_alquiler": null,
@@ -1095,26 +1183,30 @@
       "descripcion": "Aviso ficticio de Krone Inmobiliaria para probar el panel. 3 ambientes en Villa Urquiza. Las fotos son ilustrativas.",
       "titulo": "Tres ambientes a la venta en Villa Urquiza · Ejemplo 07"
     },
+    "estado": "activa",
+    "creada_us": null,
+    "disponibilidad_confirmada": null,
+    "tiene_whatsapp": false,
     "ubicacion": {
       "latitud_aproximada": null,
       "longitud_aproximada": null
     },
     "fotos": [
-      "f4c4ca91e089862443f9e425465a8f95.webp",
-      "e44433950bf6d2d11b517e8788b6dea9.webp",
-      "a517273696d5f6156de29c20de2d0718.webp"
+      "be180916629e4fe98ff46b5ce90ee4ce.jpg",
+      "b1e6d62e4277428ba13d097ac818786b.jpg",
+      "bb1ab0f563e1462cb2b7f1184ec36ec0.jpg"
     ]
   },
   {
     "publicador": 1,
     "aviso": {
       "propiedad": {
+        "direccion": "Belgrano R (ubicación aproximada)",
         "zona": "Belgrano R",
         "tipo": "departamento",
         "ambientes": 2,
         "metros_cuadrados": "44.00",
-        "permite_mascotas": true,
-        "direccion": "Zona Belgrano R"
+        "permite_mascotas": true
       },
       "operacion": "venta",
       "precio_alquiler": null,
@@ -1139,26 +1231,285 @@
       "descripcion": "Aviso ficticio de Krone Inmobiliaria para probar el panel. 2 ambientes en Belgrano R. Las fotos son ilustrativas.",
       "titulo": "Dos ambientes a la venta en Belgrano R · Ejemplo 08"
     },
+    "estado": "activa",
+    "creada_us": null,
+    "disponibilidad_confirmada": "2026-11-26",
+    "tiene_whatsapp": false,
     "ubicacion": {
       "latitud_aproximada": null,
       "longitud_aproximada": null
     },
     "fotos": [
-      "c4bc0135d84578b2339f798813c7e7e1.webp",
-      "afad62474df7b759f3200853306c2ac1.webp",
-      "438c2faa51629b01f5683159afc30ff7.webp"
+      "e505fe8f60ca4fa0a95372c27ffa20f4.jpg",
+      "de631b405a18485d82183d494e129ed6.jpg",
+      "dc61f2de6f694c17b144379ac0cce69d.jpg"
     ]
   },
   {
     "publicador": 1,
     "aviso": {
       "propiedad": {
+        "direccion": "Belgrano (ubicación aproximada)",
+        "zona": "Belgrano",
+        "tipo": "departamento",
+        "ambientes": 2,
+        "metros_cuadrados": "48.00",
+        "permite_mascotas": false
+      },
+      "operacion": "venta",
+      "precio_alquiler": null,
+      "precio_venta": {
+        "monto": "144000.00",
+        "moneda": "USD"
+      },
+      "expensas_mensuales": {
+        "monto": "57000.00",
+        "moneda": "ARS"
+      },
+      "abl_mensual": null,
+      "seguro_caucion": null,
+      "duracion_contrato_meses": null,
+      "tipo_garantia_aceptada": null,
+      "deposito": null,
+      "comision": null,
+      "otros_gastos_entrada": null,
+      "tipo_ajuste": null,
+      "tasa_ajuste": null,
+      "serie_codigo": null,
+      "patrocinada": false,
+      "fuente": "demo-krone-cupo-15",
+      "whatsapp": null,
+      "descripcion": "Aviso ficticio de Krone Inmobiliaria para probar el panel. 2 ambientes en Belgrano. Las fotos son ilustrativas.",
+      "titulo": "Departamento a la venta en Belgrano · Ejemplo 09"
+    },
+    "estado": "pausada",
+    "creada_us": null,
+    "disponibilidad_confirmada": null,
+    "tiene_whatsapp": false,
+    "ubicacion": {
+      "latitud_aproximada": null,
+      "longitud_aproximada": null
+    },
+    "fotos": [
+      "9ee412ed5ac04d96ba09932f1a9e6b47.jpg",
+      "66c9041ac8ea4b7498717bf8761f31a1.jpg",
+      "f9e704522c5249e8ae8c50acbe205d5e.jpg"
+    ]
+  },
+  {
+    "publicador": 1,
+    "aviso": {
+      "propiedad": {
+        "direccion": "Villa Devoto (ubicación aproximada)",
+        "zona": "Villa Devoto",
+        "tipo": "departamento",
+        "ambientes": 2,
+        "metros_cuadrados": "51.00",
+        "permite_mascotas": true
+      },
+      "operacion": "alquiler",
+      "precio_alquiler": {
+        "monto": "590000.00",
+        "moneda": "ARS"
+      },
+      "precio_venta": null,
+      "expensas_mensuales": {
+        "monto": "66000.00",
+        "moneda": "ARS"
+      },
+      "abl_mensual": null,
+      "seguro_caucion": null,
+      "duracion_contrato_meses": 24,
+      "tipo_garantia_aceptada": null,
+      "deposito": null,
+      "comision": null,
+      "otros_gastos_entrada": null,
+      "tipo_ajuste": null,
+      "tasa_ajuste": null,
+      "serie_codigo": null,
+      "patrocinada": false,
+      "fuente": "demo-krone-cupo-15",
+      "whatsapp": null,
+      "descripcion": "Aviso ficticio de Krone Inmobiliaria para probar el panel. 2 ambientes en Villa Devoto. Las fotos son ilustrativas.",
+      "titulo": "Departamento con cocina integrada en Villa Devoto · Ejemplo 10"
+    },
+    "estado": "pausada",
+    "creada_us": null,
+    "disponibilidad_confirmada": null,
+    "tiene_whatsapp": false,
+    "ubicacion": {
+      "latitud_aproximada": null,
+      "longitud_aproximada": null
+    },
+    "fotos": [
+      "a932edc6b1984c569c6e926c1d885f15.jpg",
+      "491842f5b5134a2c86617349f434f359.jpg",
+      "4e8bf9bc0cee463a8e6490205c9b4505.jpg"
+    ]
+  },
+  {
+    "publicador": 1,
+    "aviso": {
+      "propiedad": {
+        "direccion": "Villa Urquiza (ubicación aproximada)",
+        "zona": "Villa Urquiza",
+        "tipo": "departamento",
+        "ambientes": 1,
+        "metros_cuadrados": "34.00",
+        "permite_mascotas": false
+      },
+      "operacion": "alquiler",
+      "precio_alquiler": {
+        "monto": "445000.00",
+        "moneda": "ARS"
+      },
+      "precio_venta": null,
+      "expensas_mensuales": {
+        "monto": "47000.00",
+        "moneda": "ARS"
+      },
+      "abl_mensual": null,
+      "seguro_caucion": null,
+      "duracion_contrato_meses": 24,
+      "tipo_garantia_aceptada": null,
+      "deposito": null,
+      "comision": null,
+      "otros_gastos_entrada": null,
+      "tipo_ajuste": null,
+      "tasa_ajuste": null,
+      "serie_codigo": null,
+      "patrocinada": false,
+      "fuente": "demo-krone-cupo-15",
+      "whatsapp": null,
+      "descripcion": "Aviso ficticio de Krone Inmobiliaria para probar el panel. 1 ambientes en Villa Urquiza. Las fotos son ilustrativas.",
+      "titulo": "Departamento en Villa Urquiza · Ejemplo 11"
+    },
+    "estado": "pausada",
+    "creada_us": null,
+    "disponibilidad_confirmada": null,
+    "tiene_whatsapp": false,
+    "ubicacion": {
+      "latitud_aproximada": null,
+      "longitud_aproximada": null
+    },
+    "fotos": [
+      "92293617ddca4d88bb729ccb3829a290.jpg",
+      "07940607f0a1480a87693a016bbe641c.jpg",
+      "abe5fdf702bf4d9fabbff0c882227948.jpg"
+    ]
+  },
+  {
+    "publicador": 1,
+    "aviso": {
+      "propiedad": {
+        "direccion": "Belgrano R (ubicación aproximada)",
+        "zona": "Belgrano R",
+        "tipo": "departamento",
+        "ambientes": 2,
+        "metros_cuadrados": "44.00",
+        "permite_mascotas": true
+      },
+      "operacion": "alquiler",
+      "precio_alquiler": {
+        "monto": "505000.00",
+        "moneda": "ARS"
+      },
+      "precio_venta": null,
+      "expensas_mensuales": {
+        "monto": "55000.00",
+        "moneda": "ARS"
+      },
+      "abl_mensual": null,
+      "seguro_caucion": null,
+      "duracion_contrato_meses": 24,
+      "tipo_garantia_aceptada": null,
+      "deposito": null,
+      "comision": null,
+      "otros_gastos_entrada": null,
+      "tipo_ajuste": null,
+      "tasa_ajuste": null,
+      "serie_codigo": null,
+      "patrocinada": false,
+      "fuente": "demo-krone-cupo-15",
+      "whatsapp": null,
+      "descripcion": "Aviso ficticio de Krone Inmobiliaria para probar el panel. 2 ambientes en Belgrano R. Las fotos son ilustrativas.",
+      "titulo": "Departamento luminoso en Belgrano R · Ejemplo 12"
+    },
+    "estado": "pausada",
+    "creada_us": null,
+    "disponibilidad_confirmada": null,
+    "tiene_whatsapp": false,
+    "ubicacion": {
+      "latitud_aproximada": null,
+      "longitud_aproximada": null
+    },
+    "fotos": [
+      "a61b88237fad4e8ebe2a5cb3870566be.jpg",
+      "9b8194b4162e49dd813c3ebd7bc0d7b9.jpg",
+      "4e6f9195fc424ae381dc1e589b669c48.jpg"
+    ]
+  },
+  {
+    "publicador": 1,
+    "aviso": {
+      "propiedad": {
+        "direccion": "Núñez (ubicación aproximada)",
+        "zona": "Núñez",
+        "tipo": "departamento",
+        "ambientes": 3,
+        "metros_cuadrados": "70.00",
+        "permite_mascotas": true
+      },
+      "operacion": "venta",
+      "precio_alquiler": null,
+      "precio_venta": {
+        "monto": "148000.00",
+        "moneda": "USD"
+      },
+      "expensas_mensuales": {
+        "monto": "83000.00",
+        "moneda": "ARS"
+      },
+      "abl_mensual": null,
+      "seguro_caucion": null,
+      "duracion_contrato_meses": null,
+      "tipo_garantia_aceptada": null,
+      "deposito": null,
+      "comision": null,
+      "otros_gastos_entrada": null,
+      "tipo_ajuste": null,
+      "tasa_ajuste": null,
+      "serie_codigo": null,
+      "patrocinada": false,
+      "fuente": "demo-krone-cupo-15",
+      "whatsapp": null,
+      "descripcion": "Aviso ficticio de Krone Inmobiliaria para probar el panel. 3 ambientes en Núñez. Las fotos son ilustrativas.",
+      "titulo": "Departamento a la venta en Núñez · Ejemplo 13"
+    },
+    "estado": "pausada",
+    "creada_us": null,
+    "disponibilidad_confirmada": null,
+    "tiene_whatsapp": false,
+    "ubicacion": {
+      "latitud_aproximada": null,
+      "longitud_aproximada": null
+    },
+    "fotos": [
+      "80e91266eba9449da94e94ac83ea1667.jpg",
+      "a29169b8c9114c2d91861cb1f403af4f.jpg",
+      "49f13632b2ab47fb9e7403ae4e13af3f.jpg"
+    ]
+  },
+  {
+    "publicador": 1,
+    "aviso": {
+      "propiedad": {
+        "direccion": "Villa Devoto (ubicación aproximada)",
         "zona": "Villa Devoto",
         "tipo": "departamento",
         "ambientes": 2,
         "metros_cuadrados": "55.00",
-        "permite_mascotas": true,
-        "direccion": "Zona Villa Devoto"
+        "permite_mascotas": true
       },
       "operacion": "alquiler",
       "precio_alquiler": {
@@ -1186,14 +1537,69 @@
       "descripcion": "Aviso ficticio de Krone Inmobiliaria para probar el panel. 2 ambientes en Villa Devoto. Las fotos son ilustrativas.",
       "titulo": "Departamento para alquilar en Villa Devoto · Ejemplo 14"
     },
+    "estado": "activa",
+    "creada_us": null,
+    "disponibilidad_confirmada": "2026-11-26",
+    "tiene_whatsapp": false,
     "ubicacion": {
       "latitud_aproximada": null,
       "longitud_aproximada": null
     },
     "fotos": [
-      "f3425d473aa905e1065da27b24dff609.webp",
-      "5dde3fba90472c944ebc3bbf09fb3589.webp",
-      "3bdf5c9e3874da7a0a2ae73f50d60671.webp"
+      "b9137362192541019e753ef649dbfefb.jpg",
+      "3959b4cbeff74606953d0f76bb1543ac.jpg",
+      "2fa637f275de45a389a58b914b296215.jpg"
+    ]
+  },
+  {
+    "publicador": 1,
+    "aviso": {
+      "propiedad": {
+        "direccion": "Villa Urquiza (ubicación aproximada)",
+        "zona": "Villa Urquiza",
+        "tipo": "departamento",
+        "ambientes": 3,
+        "metros_cuadrados": "79.00",
+        "permite_mascotas": false
+      },
+      "operacion": "alquiler",
+      "precio_alquiler": {
+        "monto": "795000.00",
+        "moneda": "ARS"
+      },
+      "precio_venta": null,
+      "expensas_mensuales": {
+        "monto": "102000.00",
+        "moneda": "ARS"
+      },
+      "abl_mensual": null,
+      "seguro_caucion": null,
+      "duracion_contrato_meses": 24,
+      "tipo_garantia_aceptada": null,
+      "deposito": null,
+      "comision": null,
+      "otros_gastos_entrada": null,
+      "tipo_ajuste": null,
+      "tasa_ajuste": null,
+      "serie_codigo": null,
+      "patrocinada": false,
+      "fuente": "demo-krone-cupo-15",
+      "whatsapp": null,
+      "descripcion": "Aviso ficticio de Krone Inmobiliaria para probar el panel. 3 ambientes en Villa Urquiza. Las fotos son ilustrativas.",
+      "titulo": "Departamento para alquilar en Villa Urquiza · Ejemplo 15"
+    },
+    "estado": "pausada",
+    "creada_us": null,
+    "disponibilidad_confirmada": null,
+    "tiene_whatsapp": false,
+    "ubicacion": {
+      "latitud_aproximada": null,
+      "longitud_aproximada": null
+    },
+    "fotos": [
+      "67f5969e72c743d58e09e71efcdb02e7.jpg",
+      "e3d92480838b46a884b4fff6dc6577be.jpg",
+      "9c0e68c03a864f57ac18c375507564ba.jpg"
     ]
   }
 ]

@@ -1,3 +1,4 @@
+from alquilometro_api.models.actividad import MetricaDiariaAviso, ReporteAviso
 from alquilometro_api.models.contrato import (
     ContratoAlquiler,
     VerificacionAjuste,
@@ -21,9 +22,11 @@ __all__ = [
     'ContratoAlquiler',
     'FotoPublicacion',
     'FotoPerfilPublicador',
+    'MetricaDiariaAviso',
     'Pago',
     'Propiedad',
     'Publicacion',
+    'ReporteAviso',
     'Usuario',
     'ValorIndice',
     'VerificacionAjuste',

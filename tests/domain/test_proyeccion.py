@@ -20,9 +20,9 @@ from alquilometro_api.domain.proyeccion import (
 
 INICIO = date(2026, 1, 1)
 TRIMESTRAL = 3
-ANUAL = 12
-AJUSTES_AL_MES_12 = 3
-AJUSTES_AL_MES_24 = 7
+CADA_18_MESES = 18
+AJUSTES_AL_MES_12 = 4
+AJUSTES_AL_MES_24 = 8
 
 
 def pesos(monto: str) -> Dinero:
@@ -41,16 +41,21 @@ def test_ajuste_fijo_a_12_y_24_meses() -> None:
 
     mes_12, mes_24 = meses
     assert mes_12.ajustes_aplicados == AJUSTES_AL_MES_12
-    assert mes_12.alquiler == pesos('665500')  # 500.000 × 1,1³
-    assert mes_12.costo_mensual == pesos('765500')
-    assert mes_12.porcentaje_ingreso == Decimal('38.28')
+    assert mes_12.alquiler == pesos('732050')  # 500.000 × 1,1⁴
+    assert mes_12.costo_mensual == pesos('832050')
+    assert mes_12.porcentaje_ingreso == Decimal('41.60')
     assert mes_24.ajustes_aplicados == AJUSTES_AL_MES_24
-    assert mes_24.alquiler == pesos('974358.55')  # 500.000 × 1,1⁷
+    assert mes_24.alquiler == pesos('1071794.41')  # 500.000 × 1,1⁸
 
 
 def test_si_todavia_no_hay_ajustes_se_paga_el_inicial() -> None:
     mes_12, _ = proyectar(
-        AjusteFijo('10'), pesos('500000'), pesos('0'), INICIO, ANUAL, None
+        AjusteFijo('10'),
+        pesos('500000'),
+        pesos('0'),
+        INICIO,
+        CADA_18_MESES,
+        None,
     )
 
     assert mes_12.ajustes_aplicados == 0
@@ -87,7 +92,7 @@ def test_la_tasa_indicada_no_puede_ser_negativa() -> None:
 
 
 def test_por_indice_proyecta_con_la_misma_estrategia() -> None:
-    """Escenario del 2% mensual: al mes 12 van 3 ajustes (mes 9)."""
+    """Escenario del 2% mensual con 4 ajustes al cumplirse 12 meses."""
     indices = indices_proyectados(
         'ICL', INICIO, Decimal(100), escenario_indicado(Decimal(2))
     )
@@ -101,6 +106,6 @@ def test_por_indice_proyecta_con_la_misma_estrategia() -> None:
         None,
     )
 
-    esperado = pesos('500000').multiplicar(Decimal('1.02') ** 9).redondear()
+    esperado = pesos('500000').multiplicar(Decimal('1.02') ** 12).redondear()
     assert mes_12.alquiler == esperado
     assert 'ICL' in mes_12.formula

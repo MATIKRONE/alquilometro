@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
+from time import time_ns
 from typing import TYPE_CHECKING
 from urllib.parse import quote
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     Date,
     ForeignKey,
@@ -47,6 +49,10 @@ class Publicacion(Base):
 
     operacion: Mapped[str] = mapped_column(String(8), default='alquiler')
     estado: Mapped[str] = mapped_column(String(8), server_default='activa')
+    disponibilidad_confirmada: Mapped[date | None] = mapped_column(Date)
+    creada_us: Mapped[int | None] = mapped_column(
+        BigInteger, default=lambda: time_ns() // 1000
+    )
     visitas: Mapped[int] = mapped_column(Integer, server_default='0')
     clics_whatsapp: Mapped[int] = mapped_column(Integer, server_default='0')
     # Las columnas históricas guardan el precio de la operación.

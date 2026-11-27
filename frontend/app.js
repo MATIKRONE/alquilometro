@@ -66,15 +66,12 @@ const optionalAmount = 'type="number" min="0" max="9999999999.99" step="0.01"';
 const adjustmentIndexes = [
   ['IPC', 'IPC · Precios al consumidor (INDEC)'],
   ['ICL', 'ICL · Índice para contratos de locación'],
-  ['CASA PROPIA', 'Coeficiente Casa Propia'],
   ['UVA', 'UVA · Unidad de Valor Adquisitivo'],
   ['UVI', 'UVI · Unidad de Vivienda'],
   ['CER', 'CER · Coeficiente de Estabilización de Referencia'],
   ['CVS', 'CVS · Coeficiente de Variación Salarial'],
   ['RIPTE', 'RIPTE · Salarios de trabajadores estables'],
-  ['CAC', 'CAC · Costo de la construcción (CAMARCO)'],
   ['ICC', 'ICC · Costo de la construcción (INDEC)'],
-  ['otro', 'Otro índice pactado'],
 ];
 const favoriteStorageKey = 'alquilometro-favoritos';
 let favorites = readFavorites();
@@ -83,6 +80,7 @@ const searchFilterLabels = {
   zona: 'Barrio', ambientes: 'Ambientes', permite_mascotas: 'Mascotas', moneda: 'Moneda',
   tipo_garantia: 'Garantía', alquiler_min: 'Alquiler desde', alquiler_max: 'Alquiler hasta',
   costo_real_min: 'Costo mensual desde', costo_real_max: 'Costo mensual máximo',
+  costo_entrada_max: 'Máximo para entrar',
   precio_min: 'Precio desde', precio_max: 'Precio hasta',
   orden: 'Orden', descendente: 'Sentido',
 };
@@ -260,23 +258,25 @@ function select(title, name, choices, attrs = '') {
     `<option value="${h(value)}">${h(text)}</option>`).join('')}</select></label>`;
 }
 
-function indexFields() {
+function indexFields(currentIndex = null) {
+  const choices = [['', 'Elegí un índice'], ...adjustmentIndexes];
+  if (currentIndex && !choices.some(([code]) => code === currentIndex)) {
+    choices.push([currentIndex, currentIndex + ' · Índice del aviso']);
+  }
   return `<div data-index-choice>
-    ${select('Índice de ajuste', 'serie_codigo', [['', 'Elegí un índice'], ...adjustmentIndexes],
+    ${select('Índice de ajuste', 'serie_codigo', choices,
       'aria-describedby="index-history-hint"')}
-    <small id="index-history-hint">Para calcular el ajuste hace falta tener cargado el historial del índice.</small>
-  </div>
-  ${input('Código del índice pactado', 'serie_personalizada', 'minlength="2" maxlength="20"')}`;
+    <small id="index-history-hint">Para calcular el ajuste usamos el historial disponible del índice elegido.</small>
+  </div>`;
 }
 
 function setupAdjustmentFields(form) {
-  const { tipo_ajuste, serie_codigo } = form.elements;
+  const { tipo_ajuste } = form.elements;
   function update() {
     const mode = tipo_ajuste.disabled ? '' : tipo_ajuste.value;
     const byIndex = mode === 'INDICE';
     for (const [field, visible] of [
       ['serie_codigo', byIndex],
-      ['serie_personalizada', byIndex && serie_codigo.value === 'otro'],
       ['tasa_ajuste', mode === 'FIJO'],
     ]) {
       const control = form.elements[field];
@@ -287,19 +287,8 @@ function setupAdjustmentFields(form) {
     }
   }
   tipo_ajuste.onchange = update;
-  serie_codigo.onchange = update;
   update();
   return update;
-}
-
-function selectedIndex(data) {
-  const index = data.get('serie_codigo');
-  if (index !== 'otro') return index;
-  const custom = data.get('serie_personalizada')?.trim().toUpperCase() ?? '';
-  if (custom.length < 2 || custom.length > 20) {
-    throw new Error('Ingresá un código de índice de 2 a 20 caracteres.');
-  }
-  return custom;
 }
 
 const currency = [['ARS', 'ARS'], ['USD', 'USD']];
@@ -375,7 +364,10 @@ function openAccount(register = false, role = 'BUSCADOR') {
     ${register ? passwordField('Repetí la contraseña', 'password_confirmacion', 'account-password-confirmation',
       'minlength="8" autocomplete="new-password"', 'confirmación de contraseña') : ''}
     ${submitButton(register ? 'Crear cuenta e ingresar' : 'Ingresar')}</form>
-    <button class="quiet" id="toggle-account">${register ? 'Ya tengo cuenta' : 'Crear cuenta'}</button>`);
+    <div class="actions">
+      <button class="quiet" type="button" id="toggle-account">${register ? 'Ya tengo cuenta' : 'Crear cuenta'}</button>
+      ${register ? '' : '<button class="text-action" type="button" id="forgot-password">Olvidé mi contraseña</button>'}
+    </div>`);
   const form = dialogBody.querySelector('#login-form');
   if (register) {
     form.elements.rol.value = role;
@@ -418,8 +410,53 @@ function openAccount(register = false, role = 'BUSCADOR') {
     if (user?.rol === 'ADMIN') void showPaymentAlerts(routeVersion);
   });
   dialogBody.querySelector('#toggle-account').onclick = () => openAccount(!register);
+  dialogBody.querySelector('#forgot-password')?.addEventListener('click', openRecovery);
   if (!dialog.open) dialog.showModal();
   dialogBody.querySelector('#login-form input')?.focus();
+}
+
+function openRecovery() {
+  result(dialogBody, `<h2 id="dialog-title">Recuperar contraseña</h2>
+    <p>Ingresá el correo de tu cuenta para recibir un enlace.</p>
+    <form id="recovery-form">
+      ${input('Correo', 'email', 'type="email" required maxlength="255" autocomplete="email"')}
+      ${submitButton('Enviar enlace')}
+    </form><button class="text-action" type="button" id="recovery-back">Volver al ingreso</button>`);
+  const form = dialogBody.querySelector('#recovery-form');
+  submit(form, async (data, output) => {
+    const response = await api('/auth/recuperar', 'POST', { email: data.get('email').trim() });
+    result(output, note(response.mensaje));
+  });
+  dialogBody.querySelector('#recovery-back').onclick = () => openAccount();
+  if (!dialog.open) dialog.showModal();
+  form.elements.email.focus();
+}
+
+function resetPasswordPage(resetToken) {
+  const usable = /^[A-Za-z0-9_-]{43}$/.test(resetToken ?? '');
+  if (usable) history.replaceState(history.state, '', '#recuperar');
+  const attributes = 'required minlength="8" maxlength="128" autocomplete="new-password"';
+  result(main, `<div class="wrap content"><section class="panel reset-password-page">
+    <h1>Restablecer contraseña</h1>
+    ${usable ? `<form id="reset-password-form">
+      ${passwordField('Nueva contraseña', 'password', 'reset-password', attributes)}
+      ${passwordField('Repetí la nueva contraseña', 'confirmation', 'reset-confirmation', attributes)}
+      ${submitButton('Guardar contraseña')}
+    </form>` : note('Abrí el enlace que te llegó por correo o pedí uno nuevo.')}
+    <button class="text-action" type="button" id="request-reset">Pedir un enlace nuevo</button>
+  </section></div>`);
+  main.querySelector('#request-reset').onclick = openRecovery;
+  const form = main.querySelector('#reset-password-form');
+  if (!form) return;
+  setupPasswordToggles(form);
+  submit(form, async (data) => {
+    const password = data.get('password');
+    if (password !== data.get('confirmation')) throw new Error('Las contraseñas no coinciden.');
+    await api('/auth/restablecer', 'POST', { token: resetToken, password });
+    setUser(null);
+    result(main.querySelector('.reset-password-page'), `<h1>Contraseña actualizada</h1>
+      <p>Ya podés ingresar con la contraseña nueva.</p><button class="btn" type="button" data-login>Ingresar</button>`);
+  });
 }
 
 function showAgencyPlanOffer() {
@@ -562,13 +599,16 @@ function saveCurrentSearch() {
 
 function setSearchFilters(next, forSale = searchOperation === 'venta') {
   const unavailable = forSale ?
-    ['tipo_garantia', 'alquiler_min', 'alquiler_max', 'costo_real_min', 'costo_real_max'] :
+    ['tipo_garantia', 'alquiler_min', 'alquiler_max', 'costo_real_min', 'costo_real_max', 'costo_entrada_max'] :
     ['precio_min', 'precio_max'];
   filters = new URLSearchParams([...next].filter(([key, value]) =>
     Object.hasOwn(searchFilterLabels, key) && !unavailable.includes(key) && value &&
     (key !== 'descendente' || value === 'true') &&
     (key !== 'orden' || (forSale ? ['precio', 'precio_m2'] : ['alquiler', 'costo_real', 'precio_m2']).includes(value))));
   if (!filters.has('orden')) filters.delete('descendente');
+  if (!filters.has('moneda') && (filters.has('costo_real_max') || filters.has('costo_entrada_max'))) {
+    filters.set('moneda', 'ARS');
+  }
 }
 
 function filterChips() {
@@ -602,7 +642,16 @@ const askingPrice = (listing) => isSale(listing) ? listing.precio_venta : listin
 const monthlyCost = (listing) => isSale(listing) ? null : api('/publicaciones/' + listing.id + '/costo-real');
 const sponsoredBadge = '<span class="sponsored-badge">Destacado</span>';
 
-function listingCard(listing, cost, canCompare = true) {
+function listingCostRow(title, cost, className = '') {
+  const pending = cost?.faltantes ?? [];
+  return `<div class="listing-cost-row">
+    <div class="listing-cost-line"><small>${title}</small><strong class="money ${className}">${h(money(cost?.total))}</strong></div>
+    ${pending.length ? `<small class="listing-cost-pending">Por confirmar · ${h(pending.map(label).join(', '))}</small>` :
+      cost ? '' : '<small class="listing-cost-pending">El total no está disponible.</small>'}
+  </div>`;
+}
+
+function listingCard(listing, canCompare = true) {
   const p = listing.propiedad;
   const cover = listing.fotos?.[0];
   const detail = `#publicacion/${listing.id}`;
@@ -621,8 +670,8 @@ function listingCard(listing, cost, canCompare = true) {
     <p class="muted meta">${h(metadata(p))}</p>
     <div class="row"><small>${isSale(listing) ? 'Precio de venta' : 'Alquiler publicado'}</small><strong class="money">${h(money(askingPrice(listing)))}</strong></div>
     ${isSale(listing) ? '<p><span class="tag">En venta</span></p>' : `
-      <div class="row"><small>Costo mensual informado</small><strong class="money cost">${h(money(cost?.total))}</strong></div>
-      <p><span class="tag">${h(adjustment(listing))}</span>${cost?.faltantes.length ? ' <small>Con datos faltantes</small>' : ''}</p>`}
+      ${listingCostRow('Costo mensual informado', listing.costo_mensual, 'cost')}
+      <p><span class="tag">${h(adjustment(listing))}</span></p>`}
     <div class="actions"><a class="quiet" href="${detail}">${isSale(listing) ? 'Ver propiedad' : 'Ver costos y proyección'}</a>
       ${canCompare ? `<button type="button" class="compare-toggle" data-compare="${listing.id}" aria-label="Comparar ${h(listing.titulo)}"
         data-operation="${isSale(listing) ? 'venta' : 'alquiler'}"
@@ -630,12 +679,9 @@ function listingCard(listing, cost, canCompare = true) {
   </article>`;
 }
 
-async function showListingCards(container, listings, { comparison, onFavorite } = {}) {
-  const costs = await Promise.allSettled(listings.map(monthlyCost));
-  if (!container.isConnected) return;
-
-  result(container, `<div class="cards">${listings.map((listing, index) =>
-    listingCard(listing, costs[index].value, Boolean(comparison))).join('')}</div>`);
+function showListingCards(container, listings, { comparison, onFavorite } = {}) {
+  result(container, `<div class="cards">${listings.map((listing) =>
+    listingCard(listing, Boolean(comparison))).join('')}</div>`);
   container.onclick = async (event) => {
     const favorite = event.target.closest('[data-favorite]');
     if (favorite) {
@@ -791,7 +837,9 @@ async function search(version, returningToResults) {
       ${select('Moneda', 'moneda', [['','Todas'], ...currency])}
       ${forSale ? '' : input('Costo mensual máximo', 'costo_real_max',
         'type="number" min="0" step="0.01" placeholder="Ej. 700000" aria-describedby="budget-hint"')}
-      ${forSale ? '' : '<small class="full" id="budget-hint">Incluye el alquiler y los gastos mensuales informados. Si cargás un máximo y dejás la moneda sin elegir, se usa ARS.</small>'}
+      ${forSale ? '' : input('Máximo para entrar', 'costo_entrada_max',
+        'type="number" min="0" step="0.01" placeholder="Ej. 1500000" aria-describedby="budget-hint"')}
+      ${forSale ? '' : '<small class="full" id="budget-hint">El costo mensual suma el alquiler y los gastos informados. El máximo para entrar muestra avisos con todos los gastos de entrada informados. Si no elegís moneda, se usa ARS para estos topes.</small>'}
       </div>
       <details class="search-advanced"><summary>Más filtros y orden</summary><div class="fields">
         ${forSale ? `
@@ -862,20 +910,15 @@ async function search(version, returningToResults) {
     comparison.update();
   }
 
-  async function showMore(limit, current = revision) {
+  function showMore(limit) {
     const batch = listings.slice(shown, limit);
     const cards = results.querySelector('.cards');
     more.disabled = true;
-    const costs = await Promise.allSettled(batch.map(monthlyCost));
-    if (version !== routeVersion || current !== revision) return;
     const previous = cards.childElementCount;
-    cards.insertAdjacentHTML('beforeend', batch.map((p, i) => listingCard(p, costs[i].value)).join(''));
+    cards.insertAdjacentHTML('beforeend', batch.map((p) => listingCard(p)).join(''));
     shown += batch.length;
     resultsProgress = { link: searchLink(), shown, ids: listings.map((p) => p.id) };
     results.querySelector('[data-results-count]').textContent = `Mostrando ${shown} de ${listings.length}`;
-    if (costs.some((item) => item.status === 'rejected')) {
-      results.querySelector('[data-results-warning]').hidden = false;
-    }
     if (document.activeElement === more) {
       cards.children[previous]?.querySelector('a')?.focus({ preventScroll: true });
     }
@@ -914,18 +957,17 @@ async function search(version, returningToResults) {
         listings.sort((a, b) => Number(b.patrocinada) - Number(a.patrocinada));
       }
       result(results, `<div class="section-head"><h2>Resultados</h2><small role="status" data-results-count></small></div>` +
-        '<p class="notice warn" data-results-warning hidden>Algunos costos no se pudieron consultar.</p>' +
         (listings.length ? '<div class="cards"></div>' :
-          note('No encontramos publicaciones con esos filtros.')));
+          note(filters.has('costo_entrada_max') ? 'No encontramos avisos con todos los gastos de entrada informados que coincidan con estos filtros.' :
+            'No encontramos publicaciones con esos filtros.')));
       if (!listings.length) return;
-      await showMore(progress?.shown ?? resultsPageSize, current);
+      showMore(progress?.shown ?? resultsPageSize);
     } catch (error) {
       if (version === routeVersion && current === revision) result(results, note(error.message, 'error'));
     }
   }
   function applyFilters(next) {
     next = query(next);
-    if (next.has('costo_real_max') && !next.has('moneda')) next.set('moneda', 'ARS');
     setSearchFilters(next);
     history.replaceState(history.state, '', searchLink());
     share.parentElement.querySelector('[data-copy-status]').textContent = '';
@@ -944,7 +986,7 @@ async function search(version, returningToResults) {
     const next = new URLSearchParams(filters);
     next.delete(key);
     if (key === 'moneda') {
-      for (const dependent of ['orden', 'alquiler_min', 'alquiler_max', 'costo_real_min', 'costo_real_max', 'precio_min', 'precio_max']) next.delete(dependent);
+      for (const dependent of ['orden', 'alquiler_min', 'alquiler_max', 'costo_real_min', 'costo_real_max', 'costo_entrada_max', 'precio_min', 'precio_max']) next.delete(dependent);
     }
     applyFilters(next);
     (chips.querySelector('button') || form.elements.zona).focus({preventScroll: true});
@@ -994,8 +1036,7 @@ async function search(version, returningToResults) {
         result(featured, '<div class="hero-feature-empty"><p>Por ahora no hay propiedades publicadas en esta sección.</p></div>');
         return;
       }
-      const cost = await monthlyCost(p);
-      if (version !== routeVersion) return;
+      const cost = p.costo_mensual;
       const cover = p.fotos?.[0];
       const isExample = ['semilla', 'demo-fotos', 'demo-venta'].includes(p.fuente);
       result(featured, `
@@ -1008,7 +1049,7 @@ async function search(version, returningToResults) {
           </div>
           <dl class="hero-prices${forSale ? ' hero-prices-sale' : ''}">
             <div><dt>${forSale ? 'Precio de venta' : 'Alquiler publicado'}</dt><dd>${h(money(askingPrice(p)))}</dd></div>
-            ${forSale ? '' : `<div><dt>Costo mensual informado</dt><dd>${h(money(cost.total))}</dd></div>`}
+            ${forSale ? '' : `<div><dt>Costo mensual informado</dt><dd>${h(money(cost?.total))}</dd></div>`}
           </dl>
           <div class="hero-feature-foot">
             ${cost?.faltantes?.length ? '<small>Hay gastos sin informar</small>' : ''}
@@ -1038,6 +1079,33 @@ async function loadSavedSearches(panel) {
   }
 }
 
+async function loadSavedAlerts(panel) {
+  try {
+    const alerts = await api('/usuarios/me/alertas');
+    if (!panel.isConnected) return;
+    const items = alerts.busquedas.map((search) => `<li><a href="${h(search.enlace)}">${h(search.nombre)}</a>
+      <span>${number(search.nuevos)} ${search.nuevos === 1 ? 'aviso nuevo' : 'avisos nuevos'}</span></li>`);
+    items.push(...alerts.precios.map((item) => `<li><a href="#publicacion/${item.aviso_id}">${h(item.titulo)}</a>
+      <span>Bajó de ${h(money(item.precio_anterior))} a <strong>${h(money(item.precio_actual))}</strong></span></li>`));
+    result(panel, items.length ? `<ul class="activity-list">${items.join('')}</ul>
+      <button class="quiet" type="button">Marcar novedades como vistas</button><div role="status"></div>` :
+      '<p class="muted">Cuando haya avisos nuevos que coincidan con tus búsquedas o baje el precio de un guardado, lo vas a ver acá.</p>');
+    const button = panel.querySelector('button');
+    if (button) button.onclick = async () => {
+      button.disabled = true;
+      try {
+        await api('/usuarios/me/alertas/vistas', 'POST', alerts);
+        if (panel.isConnected) await loadSavedAlerts(panel);
+      } catch (error) {
+        result(panel.querySelector('[role="status"]'), note(error.message, 'error'));
+        button.disabled = false;
+      }
+    };
+  } catch (error) {
+    if (panel.isConnected) result(panel, note(error.message, 'error'));
+  }
+}
+
 async function savedListingsPage(queryString, version) {
   const params = new URLSearchParams(queryString);
   const isShared = params.has('avisos');
@@ -1056,6 +1124,7 @@ async function savedListingsPage(queryString, version) {
           <span data-copy-status role="status"></span></div>
       </div>
     </div>
+    ${!isShared && user ? '<section class="panel saved-searches"><h2>Novedades de tus guardados</h2><div id="saved-alerts" aria-live="polite">Cargando…</div></section>' : ''}
     ${isShared ? '' : `<section class="panel saved-searches" id="saved-searches">
       <h2>Búsquedas guardadas</h2>
       ${user ? '<div data-saved-searches aria-live="polite">Cargando…</div>' :
@@ -1071,6 +1140,7 @@ async function savedListingsPage(queryString, version) {
   const output = main.querySelector('#saved-results');
   const searchPanel = main.querySelector('#saved-searches');
   if (searchPanel && user) {
+    void loadSavedAlerts(main.querySelector('#saved-alerts'));
     void loadSavedSearches(searchPanel);
     searchPanel.onclick = async (event) => {
       const remove = event.target.closest('[data-remove-search]');
@@ -1130,7 +1200,7 @@ async function savedListingsPage(queryString, version) {
   updateSavedPage();
   if (!selected.length) return;
 
-  await showListingCards(output, selected, {
+  showListingCards(output, selected, {
     comparison,
     onFavorite(button) {
       if (isShared) return;
@@ -1549,7 +1619,7 @@ function accountPage(params) {
 
   const agency = user.rol === 'INMOBILIARIA';
   result(main, `<div class="wrap content">
-    <a class="back" href="${h(searchLink())}">Volver a publicaciones</a>
+    <a class="back publication-control" href="${h(searchLink())}"><span class="publication-control-icon" aria-hidden="true">←</span>Volver a publicaciones</a>
     <div class="section-head"><h1>Mi cuenta</h1><span class="tag">${h(roleNames[user.rol])}</span></div>
     <div class="pair account-page-panels">
       <section class="panel teal"><h2>Datos de la cuenta</h2>
@@ -1792,7 +1862,7 @@ function publicationPhotos(p) {
 function photoManagement(p, open, privatePhotos = false) {
   const photos = p.fotos || [];
   return `<details class="panel photo-management" ${open ? 'open' : ''}>
-    <summary>Administrar fotos</summary>
+    <summary class="publication-control"><span class="publication-control-icon" aria-hidden="true"></span>Administrar fotos</summary>
     ${photos.length ? `<div class="photo-management-list">${photos.map((photo, index) => `
         <figure>
           <img ${privatePhotos ?
@@ -1892,6 +1962,8 @@ function openGallery(listing, start) {
   const image = panel.querySelector('#gallery-image');
   const frame = panel.querySelector('.gallery-photo');
   const zoomReset = panel.querySelector('.gallery-reset-zoom');
+  const zoomIn = panel.querySelector('[data-gallery-zoom="in"]');
+  const zoomOut = panel.querySelector('[data-gallery-zoom="out"]');
   const count = panel.querySelector('#gallery-count');
   const arrows = panel.querySelectorAll('[data-gallery-step]');
   const thumbnails = panel.querySelector('#gallery-thumbs');
@@ -1899,7 +1971,9 @@ function openGallery(listing, start) {
   let zoom = 1;
   let offsetX = 0;
   let offsetY = 0;
-  let pointer;
+  const pointers = new Map();
+  let drag;
+  let pinch;
   let pressedOutside = false;
 
   panel.querySelector('#gallery-title').textContent = listing.titulo;
@@ -1927,14 +2001,39 @@ function openGallery(listing, start) {
     image.classList.toggle('zoomed', zoom > 1);
     zoomReset.hidden = zoom === 1;
     zoomReset.textContent = Math.round(zoom * 100) + '%';
+    zoomIn.disabled = zoom === 3;
+    zoomOut.disabled = zoom === 1;
   }
 
   function resetZoom() {
     zoom = 1;
     offsetX = offsetY = 0;
-    pointer = undefined;
+    pointers.clear();
+    drag = pinch = undefined;
     image.classList.remove('panning');
     applyZoom();
+  }
+
+  function changeZoom(next, origin, target = origin) {
+    zoom = Math.max(1, Math.min(3, next));
+    const ratio = zoom / origin.zoom;
+    offsetX = zoom === 1 ? 0 : target.x - (origin.x - origin.offsetX) * ratio;
+    offsetY = zoom === 1 ? 0 : target.y - (origin.y - origin.offsetY) * ratio;
+    applyZoom();
+  }
+
+  function zoomAt(next, x = 0, y = 0) {
+    changeZoom(next, { x, y, zoom, offsetX, offsetY });
+  }
+
+  function pinchGeometry() {
+    const [first, second] = pointers.values();
+    const rect = frame.getBoundingClientRect();
+    return {
+      distance: Math.max(1, Math.hypot(second.x - first.x, second.y - first.y)),
+      x: (first.x + second.x - rect.width) / 2 - rect.left,
+      y: (first.y + second.y - rect.height) / 2 - rect.top,
+    };
   }
 
   function render() {
@@ -1970,6 +2069,8 @@ function openGallery(listing, start) {
     resetZoom();
     panel.querySelector('[data-gallery-close]').focus();
   };
+  zoomIn.onclick = () => zoomAt(zoom * 1.4);
+  zoomOut.onclick = () => zoomAt(zoom / 1.4);
   for (const arrow of arrows) arrow.onclick = () => move(Number(arrow.dataset.galleryStep));
   thumbnails.onclick = (event) => {
     const selected = event.target.closest('[data-gallery-index]');
@@ -1983,50 +2084,64 @@ function openGallery(listing, start) {
       event.preventDefault();
       move(event.key === 'ArrowLeft' ? -1 : 1);
     }
+    if (event.key === '+' || event.key === '-') {
+      event.preventDefault();
+      zoomAt(event.key === '+' ? zoom * 1.4 : zoom / 1.4);
+    }
   };
   image.onwheel = (event) => {
     if (event.ctrlKey || !event.deltaY) return;
     event.preventDefault();
     const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? frame.clientHeight : 1;
-    const next = Math.max(1, Math.min(3, zoom * Math.exp(-event.deltaY * unit * .002)));
-    if (next === zoom) return;
-    if (next === 1) {
-      resetZoom();
-      return;
-    }
     const rect = frame.getBoundingClientRect();
-    const x = event.clientX - rect.left - rect.width / 2;
-    const y = event.clientY - rect.top - rect.height / 2;
-    offsetX = x - (x - offsetX) * next / zoom;
-    offsetY = y - (y - offsetY) * next / zoom;
-    zoom = next;
-    applyZoom();
+    zoomAt(zoom * Math.exp(-event.deltaY * unit * .002),
+      event.clientX - rect.left - rect.width / 2, event.clientY - rect.top - rect.height / 2);
   };
   image.ondblclick = () => { if (zoom > 1) resetZoom(); };
   image.onpointerdown = (event) => {
-    if (!event.isPrimary || event.button !== 0 || (zoom === 1 && event.pointerType !== 'touch')) return;
-    pointer = {id: event.pointerId, x: event.clientX, y: event.clientY, offsetX, offsetY, pan: zoom > 1};
+    if (event.button !== 0 || pointers.size === 2) return;
+    const touch = event.pointerType === 'touch';
+    if (!touch && (zoom === 1 || pointers.size)) return;
+    const point = { x: event.clientX, y: event.clientY };
+    pointers.set(event.pointerId, point);
     image.setPointerCapture(event.pointerId);
-    image.classList.toggle('panning', pointer.pan);
+    if (pointers.size === 2) {
+      pinch = { ...pinchGeometry(), zoom, offsetX, offsetY };
+      drag = undefined;
+    } else {
+      drag = { ...point, offsetX, offsetY, swipe: touch && zoom === 1 };
+    }
+    image.classList.toggle('panning', zoom > 1 && Boolean(drag));
   };
   image.onpointermove = (event) => {
-    if (!pointer?.pan || pointer.id !== event.pointerId) return;
-    offsetX = pointer.offsetX + event.clientX - pointer.x;
-    offsetY = pointer.offsetY + event.clientY - pointer.y;
-    applyZoom();
+    if (!pointers.has(event.pointerId)) return;
+    pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (pinch) {
+      const target = pinchGeometry();
+      changeZoom(pinch.zoom * target.distance / pinch.distance, pinch, target);
+    } else if (drag && zoom > 1) {
+      offsetX = drag.offsetX + event.clientX - drag.x;
+      offsetY = drag.offsetY + event.clientY - drag.y;
+      applyZoom();
+    }
   };
-  image.onpointerup = (event) => {
-    if (!pointer || pointer.id !== event.pointerId) return;
-    const distance = event.clientX - pointer.x;
-    const swipe = !pointer.pan && Math.abs(distance) > 36;
-    pointer = undefined;
-    image.classList.remove('panning');
-    if (swipe) move(distance > 0 ? -1 : 1);
+
+  function finishPointer(event) {
+    if (!pointers.delete(event.pointerId)) return;
+    const swipeDistance = drag?.swipe && event.type === 'pointerup' ? event.clientX - drag.x : 0;
+    const verticalDistance = drag ? event.clientY - drag.y : 0;
+    const [remaining] = pointers.values();
+    // Después de un pellizco, el dedo que queda puede arrastrar sin cambiar de foto.
+    drag = remaining ? { ...remaining, offsetX, offsetY, swipe: false } : undefined;
+    pinch = undefined;
+    image.classList.toggle('panning', Boolean(remaining) && zoom > 1);
+    if (Math.abs(swipeDistance) > Math.max(36, Math.abs(verticalDistance))) {
+      move(swipeDistance > 0 ? -1 : 1);
+    }
   };
-  image.onpointercancel = () => {
-    pointer = undefined;
-    image.classList.remove('panning');
-  };
+  image.onpointerup = finishPointer;
+  image.onpointercancel = finishPointer;
+  image.onlostpointercapture = finishPointer;
   panel.showModal();
   render();
 }
@@ -2310,7 +2425,7 @@ async function publisherPage(id, version) {
   });
 
   const results = main.querySelector('#publisher-listings');
-  if (listings.length) await showListingCards(results, listings);
+  if (listings.length) showListingCards(results, listings);
   else result(results, note('Este anunciante todavía no tiene publicaciones.'));
 }
 
@@ -2376,8 +2491,7 @@ async function loadSimilarListings(current, panel) {
     if (!panel.isConnected || !listings.length) return;
 
     const viewport = panel.querySelector('.similar-listings');
-    await showListingCards(viewport, listings);
-    if (!panel.isConnected) return;
+    showListingCards(viewport, listings);
     panel.hidden = false;
     setupListingCarousel(panel, viewport, viewport.querySelector('.cards'));
   } catch {
@@ -2400,7 +2514,7 @@ function publicationDescription(p) {
     <h2 id="description-title">Sobre esta propiedad</h2>
     <p class="description-copy" ${p.descripcion ? '' : 'hidden'}>${h(p.descripcion)}</p>
     ${canEdit ? `<details>
-      <summary>${p.descripcion ? 'Editar descripción' : 'Agregar descripción'}</summary>
+      <summary class="publication-control"><span class="publication-control-icon" aria-hidden="true"></span><span data-description-label>${p.descripcion ? 'Editar descripción' : 'Agregar descripción'}</span></summary>
       <form id="description-form" class="description-form">
         ${descriptionField(p.descripcion)}${submitButton('Guardar descripción')}
       </form>
@@ -2418,6 +2532,131 @@ function salePricePanel(p) {
   </section>`;
 }
 
+const reportReasons = {
+  no_disponible: 'La propiedad ya no está disponible',
+  precio: 'El precio es incorrecto',
+  duplicado: 'El aviso está duplicado',
+  otro: 'Otro motivo',
+};
+
+function availabilityText(confirmed) {
+  const days = confirmed ? Math.round((Date.parse(fechaActualArgentina()) - Date.parse(confirmed)) / 86400000) : Infinity;
+  if (days >= 14) return 'Disponibilidad por confirmar';
+  if (days <= 0) return 'Disponibilidad confirmada hoy';
+  return `Disponibilidad confirmada hace ${days} ${days === 1 ? 'día' : 'días'}`;
+}
+
+function openListingReport(listing) {
+  if (!user) {
+    openAccount();
+    return;
+  }
+  result(dialogBody, `<h2 id="dialog-title">Reportar aviso</h2><p>${h(listing.titulo)}</p>
+    <form id="listing-report-form">
+      ${select('Motivo', 'motivo', [['', 'Elegí un motivo'], ...Object.entries(reportReasons)], 'required')}
+      <label>Comentario (opcional)<textarea name="comentario" maxlength="500" rows="3"></textarea></label>
+      ${submitButton('Enviar reporte')}
+    </form>`);
+  submit(dialogBody.querySelector('form'), async (data) => {
+    await api(`/actividad/avisos/${listing.id}/reportes`, 'POST', Object.fromEntries(data));
+    result(dialogBody, '<h2 id="dialog-title">Reporte enviado</h2><p>Gracias. El equipo de Alquilómetro lo va a revisar.</p>');
+  });
+  dialog.showModal();
+}
+
+function projectionPanel(listing) {
+  const byIndex = listing.tipo_ajuste === 'INDICE';
+  const title = '<h2>Simulá tu alquiler a 12 y 24 meses</h2>';
+  if (!byIndex && listing.tipo_ajuste !== 'FIJO') {
+    return `<section class="panel">${title}
+      <p class="muted">Este aviso todavía no informa cómo se ajusta el alquiler.</p>
+    </section>`;
+  }
+
+  return `<section class="panel">
+    ${title}
+    <p>Compará el costo de hoy con el estimado al cumplirse 12 y 24 meses.</p>
+    <p class="muted">${byIndex
+      ? `Usá el ritmo de ${h(listing.serie_codigo)} de los últimos 12 meses con datos o probá tu propia tasa.`
+      : `La simulación aplica el ${h(pct(listing.tasa_ajuste))} informado cada vez que toca un ajuste.`}</p>
+    <p class="muted">La simulación mantiene los gastos informados hoy. Si cargaste tu ingreso, usa ese mismo importe para comparar.</p>
+    ${!user ? loginPrompt('Ingresá para simular el costo.') : `<form class="fields" id="projection">
+      ${input('Frecuencia del ajuste (meses)', 'meses_periodicidad', 'type="number" min="1" max="24" value="6" required')}
+      ${byIndex ? input('Variación mensual del índice (%)', 'tasa_mensual', 'type="number" min="0" step="any" placeholder="En blanco: usa el historial"') : ''}
+      ${submitButton('Simular costo mensual')}</form>`}
+  </section>`;
+}
+
+function projectionFormula(month, projection) {
+  const formula = month.formula.replaceAll('monto_base', 'Alquiler inicial');
+  const projectedDate = formula.match(/\b\d{4}-\d{2}-\d{2}\b/)?.[0];
+  if (projection.serie && projectedDate && month.ajustes_aplicados > 0) {
+    const series = projection.serie;
+    return `Alquiler inicial × (${series} estimado al ${date(projectedDate)} ÷ ${series} de referencia del ${date(projection.fecha_referencia)})`;
+  }
+  return formula.replace(/\b\d{4}-\d{2}-\d{2}\b/g, date);
+}
+
+function projectionResults(projection) {
+  const months = projection.hoy ? [projection.hoy, ...projection.meses] : projection.meses;
+  const scenario = projection.escenario;
+  const historical = scenario?.origen === 'PROMEDIO_ULTIMOS_12_MESES';
+  const interval = projection.meses_periodicidad;
+  const firstAdjustment = scenario
+    ? ((1 + Number(scenario.tasa_mensual_porcentual) / 100) ** interval - 1) * 100
+    : null;
+  const source = [projection.serie, projection.fuente_indice].filter(Boolean).join(' · ');
+  return `<div class="projection-results">
+    ${scenario ? `<div class="projection-scenario">
+      <div class="projection-rate">
+        <strong>${h(pct(scenario.tasa_mensual_porcentual))}</strong>
+        <div><b>${historical ? 'Tasa mensual equivalente' : 'Tasa mensual elegida'}</b>
+          ${historical ? '<small>Calculada con los últimos 12 meses del índice</small>' : ''}</div>
+      </div>
+      ${source ? `<div class="projection-source"><b>${h(source)}</b>
+        <small>Último dato usado · ${h(date(projection.fecha_referencia))}</small></div>` : ''}
+      <p class="projection-rate-timing">
+        El alquiler se ajusta cada <strong>${h(interval)} ${interval === 1 ? 'mes' : 'meses'}</strong>.
+        La tasa se acumula mes a mes y el primer ajuste se estima en <strong>${h(pct(firstAdjustment))}</strong>.
+      </p>
+    </div>` : ''}
+    <p class="projection-estimate">Simulación orientativa. Lo que pagues puede variar según el ajuste del contrato y los gastos de ese momento.</p>
+    <div class="projection-grid">
+      ${months.map((month) => `<article class="projection-month${month.mes === 0 ? ' projection-month-current' : ''}">
+        <h3>${month.mes === 0 ? 'Hoy · Mes 0' : 'A ' + h(month.mes) + ' meses'}</h3>
+        <p class="projection-month-adjustments">${month.ajustes_aplicados === 0
+          ? 'Sin ajustes aplicados'
+          : `${h(month.ajustes_aplicados)} ${month.ajustes_aplicados === 1 ? 'ajuste aplicado' : 'ajustes aplicados'}`}</p>
+        <dl>
+          <div class="projection-total"><dt>${month.mes === 0 ? 'Costo mensual con gastos' : 'Costo mensual estimado con gastos'}</dt>
+            <dd>${h(money(month.costo_mensual))}</dd></div>
+          <div class="projection-breakdown"><dt>${month.mes === 0 ? 'Alquiler publicado' : 'Alquiler estimado'}</dt>
+            <dd>${h(money(month.alquiler))}</dd></div>
+          ${month.porcentaje_ingreso != null ? `<div class="projection-breakdown">
+            <dt>De tu ingreso de hoy</dt><dd>${h(pct(month.porcentaje_ingreso))}</dd></div>` : ''}
+        </dl>
+      </article>`).join('')}
+    </div>
+    ${missing(projection.faltantes)}
+    <details class="projection-calculation">
+      <summary class="publication-control">
+        <span class="publication-control-icon" aria-hidden="true"></span>Ver cómo se calculó
+      </summary>
+      ${historical ? `<div class="projection-formula projection-history">
+        <strong>De dónde sale el ${h(pct(scenario.tasa_mensual_porcentual))} mensual</strong>
+        <p>Es la tasa que, aplicada 12 meses seguidos, da la misma variación que tuvo el índice en ese año.</p>
+        <p class="projection-history-equation">[(Índice reciente ÷ Índice de hace 12 meses)<sup>1/12</sup> − 1] × 100</p>
+      </div>` : ''}
+      <div class="projection-grid">
+        ${months.map((month) => `<div class="projection-formula">
+          <strong>${month.mes === 0 ? 'Hoy · Mes 0' : 'A ' + h(month.mes) + ' meses'}</strong>
+          <p>${h(projectionFormula(month, projection))}</p>
+        </div>`).join('')}
+      </div>
+    </details>
+  </div>`;
+}
+
 async function publication(id, version) {
   const comparisonBack = history.state?.comparisonBack;
   const path = '/publicaciones/' + id;
@@ -2427,7 +2666,7 @@ async function publication(id, version) {
   const [monthly, entry] = await Promise.all([monthlyCost(p), forSale ? null : api(path + '/costo-entrada')]);
   if (version !== routeVersion) return;
   result(main, `<div class="wrap content">
-    <a class="back" href="${h(comparisonBack || publicationBackLink || (forSale && searchOperation !== 'venta' ? '#comprar' : searchLink()))}">${comparisonBack ? 'Volver a la comparación' :
+    <a class="back publication-control" href="${h(comparisonBack || publicationBackLink || (forSale && searchOperation !== 'venta' ? '#comprar' : searchLink()))}"><span class="publication-control-icon" aria-hidden="true">←</span>${comparisonBack ? 'Volver a la comparación' :
       publicationBackLink ? 'Volver a guardados' : 'Volver a publicaciones'}</a>
     <div class="detail-head">
       <div class="detail-title">
@@ -2436,6 +2675,7 @@ async function publication(id, version) {
           ${p.patrocinada ? sponsoredBadge : ''}
         </div>
         <h1>${h(p.titulo)}</h1>
+        <p class="availability-label">${availabilityText(p.disponibilidad_confirmada)}</p>
       </div>
       ${canManagePublication(p) || p.whatsapp_url ? `<div class="actions detail-actions">
         ${canManagePublication(p) ? `<a class="quiet" href="#mis-publicaciones/${p.id}">Editar publicación</a>` : ''}
@@ -2450,22 +2690,19 @@ async function publication(id, version) {
     ${publicationDescription(p)}
     ${publicationLocation(p.propiedad)}
     ${forSale ? '' : `<section class="panel night" id="income-panel"><h2>Impacto sobre tus ingresos</h2></section>
-    <section class="panel"><h2>Proyección a 12 y 24 meses</h2><p class="muted">Estimación según el tipo de ajuste informado y el escenario elegido.</p>
-    ${!user ? loginPrompt('Ingresá para consultar la proyección.') : `<form class="fields" id="projection">
-      ${input('Ajuste cada (meses)', 'meses_periodicidad', 'type="number" min="1" max="24" value="6" required')}
-      ${p.tipo_ajuste === 'INDICE' ? input('Variación mensual del índice (%)', 'tasa_mensual', 'type="number" min="0" step="any" placeholder="Promedio de la serie" value="2.5"') : ''}
-      ${submitButton('Proyectar costos')}</form>`}
-    </section>`}
+    ${projectionPanel(p)}`}
     <section class="panel publisher-panel" id="publication-publisher" aria-label="Quién publica el aviso" hidden></section>
     <section class="similar-panel" id="publication-similar" aria-labelledby="similar-title" hidden>
       <h2 id="similar-title">Propiedades similares</h2>
       <div class="similar-carousel">
-        ${carouselControls('similar-listings', 'Recorrer recomendaciones')}
         <div class="similar-listings" id="similar-listings" tabindex="0" role="group" aria-label="Avisos recomendados"></div>
+        ${carouselControls('similar-listings', 'Recorrer recomendaciones')}
       </div>
     </section>
+    ${canManagePublication(p) ? '' : '<div class="report-link"><button class="text-action" id="report-listing" type="button">Reportar aviso</button></div>'}
     </div>${p.whatsapp_url ? '<div class="mobile-contact"><button type="button" class="btn detail-contact">Consultar por WhatsApp</button></div>' : ''}</div>`);
   setupPublicationPhotos(p, path);
+  main.querySelector('#report-listing')?.addEventListener('click', () => openListingReport(p));
   if (comparisonBack) main.querySelector('.back').onclick = (event) => {
     if (!isSameTabClick(event)) return;
     event.preventDefault();
@@ -2489,17 +2726,14 @@ async function publication(id, version) {
     const copy = panel.querySelector('.description-copy');
     copy.textContent = description;
     copy.hidden = !description;
-    panel.querySelector('summary').textContent = description ? 'Editar descripción' : 'Agregar descripción';
+    panel.querySelector('[data-description-label]').textContent = description ? 'Editar descripción' : 'Agregar descripción';
     result(output, note('Descripción guardada.'));
   });
   const form = main.querySelector('#projection');
   if (form) submit(form, async (data, output) => {
     result(output, note('Calculando proyección…'));
     const projection = await api(path + '/proyeccion?' + query(data));
-    result(output, (projection.escenario ? note('Variación mensual usada: ' + pct(projection.escenario.tasa_mensual_porcentual) + '.') : '') +
-      table(['Horizonte', 'Alquiler', 'Costo mensual', '% del ingreso'], projection.meses.map((m) =>
-        ['Mes ' + m.mes, money(m.alquiler), money(m.costo_mensual), pct(m.porcentaje_ingreso)])) +
-      projection.meses.map((m) => `<p><small>Mes ${m.mes}: ${h(m.formula)}</small></p>`).join('') + missing(projection.faltantes));
+    result(output, projectionResults(projection));
   });
   const income = main.querySelector('#income-panel');
   if (!income) return;
@@ -2697,6 +2931,18 @@ function publicationSuggestions(p) {
     <small>${h(suggestions.join(' · '))}</small></p>` : '';
 }
 
+function metricsSummary(stats) {
+  return `<section class="panel listing-activity"><div class="section-head"><div>
+    <h2>Rendimiento de los últimos 30 días</h2><small>Del ${date(stats.desde)} al ${date(stats.hasta)}</small></div></div>
+    <div class="pair">${[['Avisos normales', stats.normales], ['Avisos destacados', stats.destacados]].map(([label, data]) => `
+      <div><h3>${label}</h3><dl class="listing-metrics">
+        <div><dt>Visitas</dt><dd>${number(data.visitas)}</dd></div>
+        <div><dt>Clics a WhatsApp</dt><dd>${number(data.clics_whatsapp)}</dd></div>
+      </dl></div>`).join('')}</div>
+    <p class="muted">Cada visita o clic se cuenta según la visibilidad del aviso en ese momento. Un clic indica intención de contacto.</p>
+  </section>`;
+}
+
 async function myListings(id, version, fromAdmin = false) {
   if (!canManageListings()) {
     result(main, `<div class="wrap content"><h1>Mis publicaciones</h1>
@@ -2710,7 +2956,9 @@ async function myListings(id, version, fromAdmin = false) {
     if (version === routeVersion) publish(listing, fromAdmin);
     return;
   }
-  const [listings, quota] = await Promise.all([api(path), api(path + '/cupo')]);
+  const [listings, quota, stats] = await Promise.all([
+    api(path), api(path + '/cupo'), api('/actividad/metricas').catch(() => null),
+  ]);
   if (version !== routeVersion) return;
   result(main, `<div class="wrap content">
     <div class="section-head my-listings-head"><h1>Mis publicaciones</h1>
@@ -2721,6 +2969,7 @@ async function myListings(id, version, fromAdmin = false) {
     </div>
     ${quota.requiere_abono ? listingPlanRequired() : ''}
     <div id="listing-quota" aria-live="polite">${listingQuota(quota)}</div>
+    ${stats ? metricsSummary(stats) : ''}
     <div id="managed-drafts" tabindex="-1"></div>
     ${listings.length ? `<form class="panel fields managed-filters" id="managed-filters" aria-label="Filtrar mis publicaciones">
       ${input('Buscar aviso', 'buscar', 'type="search" placeholder="Título o barrio"')}
@@ -2729,7 +2978,11 @@ async function myListings(id, version, fromAdmin = false) {
       ${select('Visibilidad', 'patrocinio', [['','Todos'], ['true','Destacado'], ['false','Normal']])}
       <button class="quiet" type="reset">Limpiar filtros</button>
     </form><p id="managed-filter-count" role="status"></p>` : ''}
-    ${listings.length ? '<p class="muted listing-metrics-hint">Las métricas son acumuladas. Se cuenta una visita y un clic a WhatsApp por aviso y pestaña. Un clic indica intención de contacto.</p>' : ''}
+    ${listings.length ? `<div class="section-head availability-toolbar">
+      <small>Seleccioná avisos activos para confirmar varios juntos.</small>
+      <button class="quiet" id="confirm-selected" type="button" disabled>Confirmar seleccionados</button>
+      <div class="full" id="availability-feedback" role="status"></div>
+    </div><p class="muted listing-metrics-hint">Las tarjetas muestran visitas y clics acumulados.</p>` : ''}
     ${listings.length ? `<div class="cards" id="managed-listings">${listings.map((p) => `<article class="card managed-listing"
       data-search="${h(p.titulo + ' ' + p.propiedad.zona)}" data-operation="${h(p.operacion)}" data-sponsored="${p.patrocinada}"
       ${quota.avisos_visibles ? '' : 'data-publicacion-oculta'}>
@@ -2745,6 +2998,11 @@ async function myListings(id, version, fromAdmin = false) {
         <div><dt>Clics a WhatsApp</dt><dd>${number(p.clics_whatsapp)}</dd></div>
       </dl>
       ${publicationSuggestions(p)}
+      <div class="managed-availability" ${p.estado === 'activa' ? '' : 'hidden'}>
+        <p class="availability-label">${availabilityText(p.disponibilidad_confirmada)}</p>
+        <div class="actions"><label><input type="checkbox" value="${p.id}" aria-label="Seleccionar ${h(p.titulo)}"> Seleccionar</label>
+          <button class="text-action" type="button" data-confirm-availability="${p.id}">Sigue disponible</button></div>
+      </div>
       <div class="managed-listing-actions">
         <a class="btn" href="#mis-publicaciones/${p.id}">Administrar aviso</a>
         <div class="managed-listing-secondary">
@@ -2760,6 +3018,38 @@ async function myListings(id, version, fromAdmin = false) {
   const filtersForm = main.querySelector('#managed-filters');
   const cards = [...main.querySelectorAll('.managed-listing')];
   const count = main.querySelector('#managed-filter-count');
+  const batch = main.querySelector('#confirm-selected');
+  const feedback = main.querySelector('#availability-feedback');
+  const managed = main.querySelector('#managed-listings');
+  const selected = () => [...managed.querySelectorAll('.managed-availability input:checked')];
+  let confirming = false;
+  async function confirmAvailability(ids) {
+    if (confirming || !ids.length) return;
+    confirming = true;
+    batch.disabled = true;
+    try {
+      await api('/actividad/disponibilidad', 'PATCH', { avisos: ids });
+      for (const id of ids) {
+        const panel = managed.querySelector(`[data-confirm-availability="${id}"]`).closest('.managed-availability');
+        panel.querySelector('.availability-label').textContent = availabilityText(fechaActualArgentina());
+        panel.querySelector('input').checked = false;
+      }
+      result(feedback, note(ids.length === 1 ? 'Disponibilidad confirmada.' : `Confirmaste ${number(ids.length)} avisos.`));
+    } catch (error) {
+      result(feedback, note(error.message, 'error'));
+    } finally {
+      confirming = false;
+      batch.disabled = selected().length === 0;
+    }
+  }
+  if (managed) {
+    managed.addEventListener('change', () => { batch.disabled = confirming || selected().length === 0; });
+    managed.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-confirm-availability]');
+      if (button) void confirmAvailability([Number(button.dataset.confirmAvailability)]);
+    });
+    batch.onclick = () => confirmAvailability(selected().map((input) => Number(input.value)));
+  }
   function applyManagedFilters(values = new FormData(filtersForm)) {
     const normalize = (text) => text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim();
     const search = normalize(values.get('buscar') || '');
@@ -2779,9 +3069,14 @@ async function myListings(id, version, fromAdmin = false) {
     filtersForm.onreset = () => applyManagedFilters(new FormData());
     applyManagedFilters();
   }
-  setupListingStateMenus(main, (previous, estado) => {
+  setupListingStateMenus(main, (previous, estado, card) => {
     quota.activas += Number(estado === 'activa') - Number(previous === 'activa');
     result(quotaPanel, listingQuota(quota));
+    const panel = card.querySelector('.managed-availability');
+    panel.hidden = estado !== 'activa';
+    panel.querySelector('input').checked = false;
+    panel.querySelector('.availability-label').textContent = availabilityText(null);
+    batch.disabled = confirming || selected().length === 0;
     if (filtersForm) applyManagedFilters();
   });
 }
@@ -2803,7 +3098,7 @@ function setupListingStateMenus(container, onChanged) {
         pill.dataset.state = estado;
         card.querySelector('[data-public-listing]').hidden =
           estado !== 'activa' || card.hasAttribute('data-publicacion-oculta');
-        onChanged(previous, estado);
+        onChanged(previous, estado, card);
       } catch (error) {
         menu.value = previous;
         result(message, note(error.message, 'error'));
@@ -3051,6 +3346,21 @@ function setupSponsorshipMenus(container) {
   }
 }
 
+async function loadAdminReports(panel) {
+  try {
+    const reports = await api('/admin/reportes');
+    if (!panel.isConnected) return;
+    result(panel, reports.length ? `<ul class="activity-list">${reports.map((report) => `<li>
+      <div><strong>${h(reportReasons[report.motivo])}</strong>
+        <p>${report.publicacion_id ? `<a href="#mis-publicaciones/${report.publicacion_id}?origen=admin">${h(report.titulo)}</a>` : h(report.titulo)} · ${date(report.fecha)}</p>
+        ${report.comentario ? `<p>${h(report.comentario)}</p>` : ''}</div>
+      <button class="quiet" type="button" data-review-report="${report.id}">Marcar revisado</button>
+    </li>`).join('')}</ul><div role="status"></div>` : '<p class="muted">No hay reportes pendientes.</p>');
+  } catch (error) {
+    if (panel.isConnected) result(panel, note(error.message, 'error'));
+  }
+}
+
 async function adminPage(version) {
   if (user?.rol !== 'ADMIN') {
     result(main, `<div class="wrap content"><h1>Panel de administración</h1>
@@ -3066,6 +3376,10 @@ async function adminPage(version) {
     <h1>Panel de administración</h1>
     <div id="admin-overview">${adminOverview(overview)}</div>
     <div id="admin-message" aria-live="polite"></div>
+    <section class="panel listing-activity" aria-labelledby="reports-title">
+      <h2 id="reports-title">Reportes de avisos</h2>
+      <div id="admin-reports" aria-live="polite">Cargando…</div>
+    </section>
     <section class="panel admin-sponsorships" id="admin-sponsorships">
       <h2>Destacados</h2>
       <div id="admin-sponsorship-message" aria-live="polite"></div>
@@ -3113,6 +3427,20 @@ async function adminPage(version) {
     </section>
   </div>`);
   const form = main.querySelector('#admin-filters');
+  const reports = main.querySelector('#admin-reports');
+  void loadAdminReports(reports);
+  reports.onclick = async (event) => {
+    const button = event.target.closest('[data-review-report]');
+    if (!button) return;
+    button.disabled = true;
+    try {
+      await api('/admin/reportes/' + button.dataset.reviewReport, 'PATCH');
+      if (reports.isConnected) await loadAdminReports(reports);
+    } catch (error) {
+      result(reports.querySelector('[role="status"]'), note(error.message, 'error'));
+      button.disabled = false;
+    }
+  };
   const output = main.querySelector('#admin-results');
   const overviewPanel = main.querySelector('#admin-overview');
   const message = main.querySelector('#admin-message');
@@ -3497,6 +3825,7 @@ function fillListingForm(form, fields) {
     const control = form.elements.namedItem(name);
     if (!control || value == null) continue;
     if (control.tagName === 'SELECT' && !Array.from(control.options).some((item) => item.value === String(value))) {
+      if (name === 'serie_codigo') continue;
       control.add(new Option(value, value));
     }
     if (control.type === 'checkbox') control.checked = value === true || value === 'on';
@@ -3597,7 +3926,7 @@ function publish(listing = null, fromAdmin = false, { quota, draft } = {}) {
         </div></div></section>
       <section class="panel" data-rental-fields><h2>Ajuste del alquiler</h2><div class="fields">
         ${select('Tipo de ajuste', 'tipo_ajuste', [['','Sin informar'], ['INDICE','Por índice'], ['FIJO','Porcentaje fijo']])}
-        ${indexFields()}
+        ${indexFields(listing?.serie_codigo)}
         ${input('Tasa fija por ajuste (%)', 'tasa_ajuste', 'type="number" min="0" step="any"')}
       </div></section>
       <section class="panel"><h2>Contacto</h2>
@@ -3729,7 +4058,7 @@ function publish(listing = null, fromAdmin = false, { quota, draft } = {}) {
       duracion_contrato_meses: duration === null ? null : Number(duration),
       tipo_garantia_aceptada: value('tipo_garantia_aceptada'),
       tipo_ajuste: value('tipo_ajuste'), tasa_ajuste: value('tasa_ajuste'),
-      serie_codigo: selectedIndex(data),
+      serie_codigo: data.get('serie_codigo'),
       whatsapp: value('whatsapp'),
       descripcion: value('descripcion'),
       ...(listing ? { fuente: listing.fuente } : {}),
@@ -3810,7 +4139,7 @@ async function contracts(version, registrar = false) {
       fecha_inicio: data.get('fecha_inicio'), duracion_meses: Number(data.get('duracion_meses')),
       monto_base: { monto: data.get('monto'), moneda: data.get('moneda') },
       tipo_ajuste: data.get('tipo_ajuste'), meses_periodicidad: Number(data.get('meses_periodicidad')),
-      tasa_ajuste: data.get('tasa_ajuste'), serie_codigo: selectedIndex(data),
+      tasa_ajuste: data.get('tasa_ajuste'), serie_codigo: data.get('serie_codigo'),
     });
     location.hash = '#contrato/' + c.id;
   });
@@ -3942,7 +4271,8 @@ async function route() {
     ['publicar', 'cuenta', 'comprar', 'mis-publicaciones', 'admin', 'planes'].includes(page) ? page : 'buscar';
   const isPublication = page === 'publicacion' && /^\d+$/.test(id);
   const isPublisher = page === 'publicador' && /^\d+$/.test(id);
-  const view = isPublication ? 'publicacion' : isPublisher ? 'publicador' : page === 'guardados' ? 'guardados' : tab;
+  const view = isPublication ? 'publicacion' : isPublisher ? 'publicador' :
+    ['guardados', 'recuperar'].includes(page) ? page : tab;
   const isCatalog = ['buscar', 'comprar'].includes(view);
   const comparisonToRestore = (isCatalog || view === 'guardados') && history.state?.returnComparison;
   if (comparisonToRestore) {
@@ -3972,6 +4302,7 @@ async function route() {
     else if (isPublication) await publication(id, version);
     else if (isPublisher) await publisherPage(id, version);
     else if (view === 'guardados') await savedListingsPage(filterQuery, version);
+    else if (view === 'recuperar') resetPasswordPage(id);
     else if (view === 'cuenta') accountPage(new URLSearchParams(filterQuery));
     else if (view === 'planes') await planesPage(version);
     else if (view === 'admin') await adminPage(version);

@@ -46,6 +46,146 @@ def aviso_id(cliente: TestClient, headers_inmobiliaria: dict[str, str]) -> int:
     return respuesta.json()['id']
 
 
+def test_disponibilidad_y_revision_de_reportes(
+    cliente: TestClient,
+    aviso_id: int,
+    headers_inmobiliaria: dict[str, str],
+    autenticar_como: Autenticar,
+) -> None:
+    visitante = autenticar_como('reportes@example.com', 'BUSCADOR')
+    otra_agencia = autenticar_como('externa@example.com', 'INMOBILIARIA')
+    admin = autenticar_como('reportes-admin@example.com', 'ADMIN')
+    base = f'/publicaciones/{aviso_id}'
+    ruta = '/actividad/disponibilidad'
+    payload = {'avisos': [aviso_id]}
+    assert cliente.get(base).json()['disponibilidad_confirmada'] is None
+    assert cliente.patch(
+        ruta, json=payload, headers=otra_agencia
+    ).status_code == (HTTPStatus.CONFLICT)
+    assert (
+        cliente.patch(
+            ruta,
+            json=payload,
+            headers=headers_inmobiliaria,
+        ).status_code
+        == HTTPStatus.NO_CONTENT
+    )
+    assert cliente.get(base).json()['disponibilidad_confirmada'] is not None
+
+    reportar = f'/actividad/avisos/{aviso_id}/reportes'
+    reporte = {'motivo': 'precio', 'comentario': 'El precio cambió.'}
+    for esperado in (HTTPStatus.NO_CONTENT, HTTPStatus.CONFLICT):
+        assert (
+            cliente.post(reportar, json=reporte, headers=visitante).status_code
+            == esperado
+        )
+    pendientes = '/admin/reportes'
+    assert (
+        cliente.get(pendientes, headers=visitante).status_code
+        == HTTPStatus.FORBIDDEN
+    )
+    [fila] = cliente.get(pendientes, headers=admin).json()
+    assert fila['publicacion_id'] == aviso_id
+    assert fila['motivo'] == reporte['motivo']
+    assert cliente.patch(
+        f'{pendientes}/{fila["id"]}', headers=admin
+    ).status_code == (HTTPStatus.NO_CONTENT)
+    assert cliente.get(pendientes, headers=admin).json() == []
+
+
+def test_alertas_detectan_coincidencias_y_bajas_de_precio(
+    cliente: TestClient,
+    aviso_id: int,
+    headers_inmobiliaria: dict[str, str],
+    autenticar: Autenticar,
+) -> None:
+    buscador = autenticar()
+    ruta = '/usuarios/me'
+    enlace = '#buscar?zona=Caballito'
+    assert (
+        cliente.put(
+            f'{ruta}/busquedas',
+            json={'enlace': enlace, 'nombre': 'Caballito'},
+            headers=buscador,
+        ).status_code
+        == HTTPStatus.NO_CONTENT
+    )
+    assert (
+        cliente.put(
+            f'{ruta}/guardados/{aviso_id}',
+            headers=buscador,
+        ).status_code
+        == HTTPStatus.NO_CONTENT
+    )
+    assert (
+        cliente.post(
+            '/publicaciones',
+            json=datos(),
+            headers=headers_inmobiliaria,
+        ).status_code
+        == HTTPStatus.CREATED
+    )
+    assert (
+        cliente.patch(
+            f'/publicaciones/mis/{aviso_id}/precio',
+            json={'monto': '600000'},
+            headers=headers_inmobiliaria,
+        ).status_code
+        == HTTPStatus.NO_CONTENT
+    )
+    alertas = cliente.get(f'{ruta}/alertas', headers=buscador).json()
+    assert alertas['busquedas'] == [
+        dict(nombre='Caballito', enlace=enlace, nuevos=1)
+    ]
+    [baja] = alertas['precios']
+    assert baja['aviso_id'] == aviso_id
+    assert baja['precio_actual']['monto'] == '600000.00'
+    assert (
+        cliente.post(
+            f'{ruta}/alertas/vistas',
+            json=alertas,
+            headers=buscador,
+        ).status_code
+        == HTTPStatus.NO_CONTENT
+    )
+    vistas = cliente.get(f'{ruta}/alertas', headers=buscador).json()
+    assert vistas['busquedas'] == vistas['precios'] == []
+
+
+def test_metricas_recientes_distinguen_si_el_aviso_era_destacado(
+    cliente: TestClient,
+    aviso_id: int,
+    headers_inmobiliaria: dict[str, str],
+    autenticar_como: Autenticar,
+) -> None:
+    admin = autenticar_como('metricas-admin@example.com', 'ADMIN')
+    ruta = f'/publicaciones/{aviso_id}/metricas'
+    evento = {'evento': 'visita'}
+    assert cliente.post(ruta, json=evento).status_code == HTTPStatus.NO_CONTENT
+    assert (
+        cliente.patch(
+            f'/admin/publicaciones/{aviso_id}/patrocinio',
+            json={'patrocinada': True},
+            headers=admin,
+        ).status_code
+        == HTTPStatus.NO_CONTENT
+    )
+    assert cliente.post(ruta, json=evento).status_code == HTTPStatus.NO_CONTENT
+    respuesta = cliente.get(
+        '/actividad/metricas', headers=headers_inmobiliaria
+    )
+    assert respuesta.status_code == HTTPStatus.OK
+    stats = respuesta.json()
+    assert (
+        stats['normales']
+        == stats['destacados']
+        == {
+            'visitas': 1,
+            'clics_whatsapp': 0,
+        }
+    )
+
+
 def test_los_guardados_son_por_cuenta_y_no_se_duplican(
     cliente: TestClient, aviso_id: int, autenticar_como: Autenticar
 ) -> None:

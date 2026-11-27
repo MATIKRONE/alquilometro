@@ -88,15 +88,15 @@ solo un administrador puede modificarlos. Si están definidas `ADMIN_EMAIL` y
 `ADMIN_PASSWORD`, también crea un administrador (el único rol que puede
 cargar índices). Es idempotente: no duplica avisos.
 
-Para usar series oficiales, descargarlas como CSV `fecha,valor` (fecha ISO) y:
+Para cargar una serie que no se sincroniza automáticamente, usá un CSV
+`fecha,valor` con fecha ISO:
 
 ```bash
-poetry run python -m alquilometro_api.semilla --csv ICL icl.csv
+poetry run python -m alquilometro_api.semilla --csv CAC cac.csv
 ```
 
-Si ya tenías un `alquilometro.db` de antes, borralo: las tablas se crean con
-`create_all`, que no agrega columnas nuevas (comisión y otros gastos de
-entrada) a tablas existentes.
+Al iniciar, la aplicación aplica las actualizaciones de esquema a la base
+existente.
 
 ### Recorrido de la demo
 
@@ -212,3 +212,24 @@ alquilometro_api/
 ├── routers/    endpoints de FastAPI
 └── semilla.py  datos de ejemplo para la demo
 ```
+
+
+### Actualización de índices
+
+La aplicación sincroniza los índices al arrancar y cada seis horas mientras
+está en ejecución. El plazo se configura con INDICES_INTERVALO_HORAS. Para
+desactivar la tarea, se puede configurar INDICES_ACTUALIZACION_AUTOMATICA=false.
+
+- BCRA: ICL, CER, UVA y UVI por fecha.
+- INDEC: IPC nacional e ICC de Gran Buenos Aires por mes, y CVS total del índice de salarios por fecha.
+- Seguridad Social: RIPTE mensual, base julio de 1994. Se guardan los períodos de la tabla pública en cada consulta.
+
+La base conserva el historial si una fuente falla. La proyección histórica usa
+doce meses de variación y muestra el organismo y la fecha de referencia. El
+resultado es un escenario de costos. El porcentaje sobre el ingreso se calcula
+con el ingreso de referencia que cargó el usuario.
+
+Los índices particulares se pueden cargar con el comando que ya admite archivos
+CSV de fecha y valor. Para Casa Propia, el valor debe ser un nivel acumulado con
+una base consistente, obtenido multiplicando los factores mensuales. El factor
+mensual publicado por sí solo no sirve como nivel.

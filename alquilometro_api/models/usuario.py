@@ -57,6 +57,8 @@ class Usuario(Base):
     password_hash: Mapped[str] = mapped_column(String(255))
     habilitada: Mapped[bool] = mapped_column(Boolean, server_default=true())
     version_sesion: Mapped[int] = mapped_column(Integer, server_default='0')
+    recuperacion_hash: Mapped[str | None] = mapped_column(String(64))
+    recuperacion_expira: Mapped[int | None] = mapped_column(Integer)
     abono_vigente_hasta: Mapped[date | None] = mapped_column(Date)
     abono_pagado_el: Mapped[date | None] = mapped_column(Date)
     abono_referencia_pendiente: Mapped[str | None] = mapped_column(String(100))

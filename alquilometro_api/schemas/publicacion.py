@@ -1,6 +1,7 @@
 import re
+from datetime import date
 from decimal import Decimal
-from typing import Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Literal
 
 from pydantic import (
     AfterValidator,
@@ -13,8 +14,13 @@ from pydantic import (
     model_validator,
 )
 
+from alquilometro_api.domain.desglose_costo import CostoEntrada, DesgloseCosto
 from alquilometro_api.domain.dinero import Dinero
+from alquilometro_api.domain.errores import MonedaIncompatible
 from alquilometro_api.domain.moneda import Moneda
+
+if TYPE_CHECKING:
+    from alquilometro_api.models.publicacion import Publicacion
 
 
 def _normalizar_whatsapp(valor: str | None) -> str | None:
@@ -260,6 +266,7 @@ class FiltrosPublicacionesConsulta(BaseModel):
     precio_max: Decimal | None = Field(default=None, ge=0)
     costo_real_min: Decimal | None = Field(default=None, ge=0)
     costo_real_max: Decimal | None = Field(default=None, ge=0)
+    costo_entrada_max: Decimal | None = Field(default=None, ge=0)
     moneda: Moneda | None = None
     orden: Literal['alquiler', 'precio', 'costo_real', 'precio_m2'] | None = (
         None
@@ -287,6 +294,7 @@ class PublicacionRespuesta(PublicacionCrear):
     publicador_id: int
     fotos: list[FotoPublicacionRespuesta]
     whatsapp_url: str | None
+    disponibilidad_confirmada: date | None = None
     patrocinada: bool = Field(
         default=False,
         validation_alias=AliasChoices('patrocinio_activo', 'patrocinada'),
@@ -296,6 +304,39 @@ class PublicacionRespuesta(PublicacionCrear):
     @classmethod
     def operacion_por_defecto(cls, valor: object) -> object:
         return 'alquiler' if valor is None else valor
+
+
+class CostoResumidoRespuesta(BaseModel):
+    total: Dinero
+    faltantes: list[str]
+
+    @classmethod
+    def desde_desglose(
+        cls, costo: CostoEntrada | DesgloseCosto
+    ) -> 'CostoResumidoRespuesta | None':
+        try:
+            return cls(total=costo.total, faltantes=costo.faltantes)
+        except MonedaIncompatible:
+            return None
+
+
+class PublicacionCatalogoRespuesta(PublicacionRespuesta):
+    costo_mensual: CostoResumidoRespuesta | None = None
+    costo_entrada: CostoResumidoRespuesta | None = None
+
+    @classmethod
+    def desde_publicacion(
+        cls, aviso: 'Publicacion'
+    ) -> 'PublicacionCatalogoRespuesta':
+        respuesta = cls.model_validate(aviso)
+        if aviso.operacion == 'alquiler':
+            respuesta.costo_mensual = CostoResumidoRespuesta.desde_desglose(
+                aviso.calcular_costo_real()
+            )
+            respuesta.costo_entrada = CostoResumidoRespuesta.desde_desglose(
+                aviso.calcular_costo_entrada()
+            )
+        return respuesta
 
 
 class PublicacionGestionRespuesta(PublicacionRespuesta):

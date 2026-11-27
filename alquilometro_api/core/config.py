@@ -15,6 +15,8 @@ class Configuracion(BaseSettings):
     sql_echo: bool = False
     carpeta_fotos: Path = Path('fotos')
     fotos_eliminar_huerfanas: bool = False
+    indices_actualizacion_automatica: bool = True
+    indices_intervalo_horas: PositiveInt = 6
 
     # Cambiar jwt_secret_key en produccion
     jwt_secret_key: str = 'clave-desarrollo'

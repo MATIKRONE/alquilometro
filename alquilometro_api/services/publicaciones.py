@@ -10,6 +10,7 @@ from alquilometro_api.domain.abonos import DIAS_GRACIA
 from alquilometro_api.domain.analisis_economico import AnalisisEconomico
 from alquilometro_api.domain.errores import (
     ConflictoDominio,
+    MonedaIncompatible,
     PermisoInsuficiente,
     RecursoNoEncontrado,
     ValidacionError,
@@ -17,6 +18,7 @@ from alquilometro_api.domain.errores import (
 from alquilometro_api.domain.moneda import Moneda
 from alquilometro_api.domain.patrocinio import hoy_en_argentina
 from alquilometro_api.domain.rol import Rol
+from alquilometro_api.models.actividad import MetricaDiariaAviso
 from alquilometro_api.models.contrato import ContratoAlquiler
 from alquilometro_api.models.propiedad import Propiedad
 from alquilometro_api.models.publicacion import Publicacion
@@ -71,6 +73,7 @@ class FiltrosPublicaciones:
     alquiler_max: Decimal | None = None
     costo_real_min: Decimal | None = None
     costo_real_max: Decimal | None = None
+    costo_entrada_max: Decimal | None = None
     moneda: Moneda | None = None
     orden: str | None = None
     descendente: bool = False
@@ -78,6 +81,7 @@ class FiltrosPublicaciones:
     operacion: OperacionPublicacion | None = None
     precio_min: Decimal | None = None
     precio_max: Decimal | None = None
+    periodo_creacion_us: tuple[int, int] | None = None
 
 
 class ServicioPublicaciones:
@@ -117,7 +121,7 @@ class ServicioPublicaciones:
                     'Eliminá uno para liberar espacio.'
                 )
         publicacion = Publicacion(propiedad=propiedad, publicador=publicador)
-        asignar_datos(publicacion, datos)
+        _asignar_datos(publicacion, datos)
         publicacion.patrocinada = datos.patrocinada
 
         self.sesion.add(propiedad)
@@ -155,7 +159,7 @@ class ServicioPublicaciones:
             setattr(propiedad, campo, valor)
         if cambio_direccion or propiedad.latitud_aproximada is None:
             self._ubicar_propiedad(propiedad)
-        asignar_datos(publicacion, datos)
+        _asignar_datos(publicacion, datos)
 
         self.sesion.commit()
         self.sesion.refresh(publicacion)
@@ -324,6 +328,8 @@ class ServicioPublicaciones:
             if publicacion.estado != 'activa':
                 self._validar_activacion(publicacion.publicador)
         publicacion.estado = estado
+        if estado != 'activa':
+            publicacion.disponibilidad_confirmada = None
         self.sesion.commit()
 
     def registrar_evento(
@@ -340,9 +346,32 @@ class ServicioPublicaciones:
             consulta = consulta.where(
                 Publicacion.whatsapp.is_not(None)
             ).values(clics_whatsapp=Publicacion.clics_whatsapp + 1)
-        registrado = self.sesion.scalar(consulta.returning(Publicacion.id))
+        registrado = self.sesion.execute(
+            consulta.returning(
+                Publicacion.patrocinada,
+                Publicacion.patrocinio_desde,
+                Publicacion.patrocinio_hasta,
+            )
+        ).one_or_none()
         if registrado is None:
             raise RecursoNoEncontrado('Este aviso no está disponible.')
+        patrocinada, desde, hasta = registrado
+        hoy = hoy_en_argentina()
+        destacado = patrocinada and (
+            desde is None or hasta is not None and desde <= hoy <= hasta
+        )
+        clave = (publicacion_id, hoy, destacado)
+        metrica = self.sesion.get(MetricaDiariaAviso, clave)
+        if metrica is None:
+            metrica = MetricaDiariaAviso(
+                publicacion_id=publicacion_id, dia=hoy, destacado=destacado,
+                visitas=0, clics_whatsapp=0,
+            )
+            self.sesion.add(metrica)
+        if evento == 'visita':
+            metrica.visitas += 1
+        else:
+            metrica.clics_whatsapp += 1
         self.sesion.commit()
 
     def actualizar_precio(
@@ -404,6 +433,12 @@ class ServicioPublicaciones:
                 )
             ]
 
+        if filtros.costo_entrada_max is not None:
+            publicaciones = [
+                aviso for aviso in publicaciones
+                if _entra_en_presupuesto(aviso, filtros.costo_entrada_max)
+            ]
+
         return self._ordenar_publicaciones(publicaciones, filtros)
 
     @staticmethod
@@ -417,6 +452,7 @@ class ServicioPublicaciones:
                 filtros.alquiler_max,
                 filtros.costo_real_min,
                 filtros.costo_real_max,
+                filtros.costo_entrada_max,
                 filtros.tipo_garantia,
             )
         )
@@ -461,6 +497,7 @@ class ServicioPublicaciones:
             or filtros.precio_max is not None
             or filtros.costo_real_min is not None
             or filtros.costo_real_max is not None
+            or filtros.costo_entrada_max is not None
         )
 
         if hay_rango_monetario and filtros.moneda is None:
@@ -475,11 +512,23 @@ class ServicioPublicaciones:
         self,
         filtros: FiltrosPublicaciones,
     ) -> list[Publicacion]:
+        periodo = filtros.periodo_creacion_us
+        condiciones_fecha = (
+            (
+                Publicacion.creada_us > periodo[0],
+                Publicacion.creada_us <= periodo[1],
+            )
+            if periodo is not None
+            else ()
+        )
         consulta = (
             select(Publicacion)
             .join(Publicacion.propiedad)
             .join(Publicacion.publicador)
-            .where(Publicacion.estado == 'activa', anunciante_visible())
+            .where(
+                Publicacion.estado == 'activa', anunciante_visible(),
+                *condiciones_fecha,
+            )
         )
 
         if filtros.operacion is not None:
@@ -548,8 +597,9 @@ class ServicioPublicaciones:
         if filtros.orden == 'costo_real':
             return sorted(
                 publicaciones,
-                key=_monto_costo_real,
-                reverse=filtros.descendente,
+                key=lambda aviso: _clave_costo_real(
+                    aviso, filtros.descendente
+                ),
             )
 
         if filtros.orden == 'precio_m2':
@@ -605,7 +655,7 @@ class ServicioPublicaciones:
         )
 
 
-def asignar_datos(publicacion: Publicacion, datos: PublicacionCrear) -> None:
+def _asignar_datos(publicacion: Publicacion, datos: PublicacionCrear) -> None:
     """Copia los datos del aviso a las columnas del modelo."""
     precio = datos.precio_venta or datos.precio_alquiler
     assert precio is not None
@@ -644,7 +694,10 @@ def _esta_dentro_del_rango_de_costo_real(
     publicacion: Publicacion,
     filtros: FiltrosPublicaciones,
 ) -> bool:
-    costo_real = publicacion.calcular_costo_real().total
+    try:
+        costo_real = publicacion.calcular_costo_real().total
+    except MonedaIncompatible:
+        return False
 
     if costo_real.moneda is not filtros.moneda:
         return False
@@ -664,10 +717,24 @@ def _esta_dentro_del_rango_de_costo_real(
     return True
 
 
-def _monto_costo_real(
-    publicacion: Publicacion,
-) -> Decimal:
-    return publicacion.calcular_costo_real().total.monto
+def _clave_costo_real(
+    publicacion: Publicacion, descendente: bool
+) -> tuple[bool, Decimal]:
+    try:
+        monto = publicacion.calcular_costo_real().total.monto
+    except MonedaIncompatible:
+        return True, Decimal(0)
+    return False, -monto if descendente else monto
+
+
+def _entra_en_presupuesto(publicacion: Publicacion, tope: Decimal) -> bool:
+    costo = publicacion.calcular_costo_entrada()
+    if costo.faltantes:
+        return False
+    try:
+        return costo.total.monto <= tope
+    except MonedaIncompatible:
+        return False
 
 
 def _ordenar_por_precio_m2(

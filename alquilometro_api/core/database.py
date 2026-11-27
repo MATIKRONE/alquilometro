@@ -1,5 +1,6 @@
 from collections.abc import Iterator
 from functools import lru_cache
+from time import time_ns
 from typing import Any
 
 from sqlalchemy import (
@@ -9,6 +10,7 @@ from sqlalchemy import (
     create_engine,
     event,
     inspect,
+    select,
 )
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import DeclarativeBase, Session
@@ -96,6 +98,8 @@ def crear_tablas(engine: Engine | None = None) -> None:
                 'titulo': 'VARCHAR(100)',
                 'operacion': "VARCHAR(8) NOT NULL DEFAULT 'alquiler'",
                 'estado': "VARCHAR(8) NOT NULL DEFAULT 'activa'",
+                'disponibilidad_confirmada': 'DATE',
+                'creada_us': 'BIGINT',
                 'visitas': 'INTEGER NOT NULL DEFAULT 0',
                 'clics_whatsapp': 'INTEGER NOT NULL DEFAULT 0',
                 'patrocinio_desde': 'DATE',
@@ -124,12 +128,50 @@ def crear_tablas(engine: Engine | None = None) -> None:
                 'telefono': 'VARCHAR(16)',
                 'habilitada': 'BOOLEAN NOT NULL DEFAULT TRUE',
                 'version_sesion': 'INTEGER NOT NULL DEFAULT 0',
+                'recuperacion_hash': 'VARCHAR(64)',
+                'recuperacion_expira': 'INTEGER',
                 'abono_vigente_hasta': 'DATE',
                 'abono_pagado_el': 'DATE',
                 'abono_referencia_pendiente': 'VARCHAR(100)',
                 'abono_eliminar_desde': 'DATE',
                 'abono_corte_sin_pago': 'DATE',
             },
+        )
+        _agregar_columnas(
+            conexion, 'avisos_guardados',
+            {'precio_visto': 'NUMERIC(14, 2)', 'moneda_vista': 'VARCHAR(3)'},
+        )
+        _agregar_columnas(
+            conexion, 'busquedas_guardadas', {'ultima_revision_us': 'BIGINT'}
+        )
+        _agregar_columnas(conexion, 'valores_indice', {'fuente': 'VARCHAR(32)'})
+        _iniciar_alertas_guardadas(conexion)
+        if 'usuarios' in Base.metadata.tables:
+            conexion.exec_driver_sql(
+                'CREATE INDEX IF NOT EXISTS ix_usuarios_recuperacion '
+                'ON usuarios (recuperacion_hash)'
+            )
+
+
+def _iniciar_alertas_guardadas(conexion: Connection) -> None:
+    tablas = Base.metadata.tables
+    if 'busquedas_guardadas' in tablas:
+        busquedas = tablas['busquedas_guardadas']
+        conexion.execute(
+            busquedas.update().where(busquedas.c.ultima_revision_us.is_(None))
+            .values(ultima_revision_us=time_ns() // 1000)
+        )
+    if 'avisos_guardados' in tablas and 'publicaciones' in tablas:
+        guardados = tablas['avisos_guardados']
+        avisos = tablas['publicaciones']
+        filtros = avisos.c.id == guardados.c.publicacion_id
+        conexion.execute(
+            guardados.update().where(guardados.c.precio_visto.is_(None)).values(
+                precio_visto=select(avisos.c.precio_alquiler_monto)
+                .where(filtros).scalar_subquery(),
+                moneda_vista=select(avisos.c.precio_alquiler_moneda)
+                .where(filtros).scalar_subquery(),
+            )
         )
 
 
